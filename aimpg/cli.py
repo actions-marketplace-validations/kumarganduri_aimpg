@@ -53,7 +53,10 @@ def _analyze(args):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aimpg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    _common(sub.add_parser("report", help="print the energy receipt"), 30)
+    report_p = sub.add_parser("report", help="print the energy receipt")
+    _common(report_p, 30)
+    report_p.add_argument("--share", type=Path, nargs="?", const=Path("aimpg-receipt.svg"), default=None, metavar="FILE",
+                          help="also write a share card (totals only; SVG, plus PNG where possible)")
 
     pr = sub.add_parser("pr", help="AI energy and cost of this branch's commits, as a PR comment")
     _common(pr, 90)
@@ -226,6 +229,17 @@ def main(argv: list[str] | None = None) -> int:
     ledger.record(task_energy(attribution.tasks))
     judged = durable.judge(ledger.load(), now)
     sys.stdout.write(render(parsed, attribution, since, now, judged))
+    if args.share:
+        from aimpg import card
+
+        n = card.numbers(parsed, attribution, since, now, judged)
+        try:
+            svg_path, png_path = card.write(n, args.share)
+        except Exception as exc:  # the receipt above is already printed; a renderer problem must not hide it
+            svg_path, png_path = args.share.with_suffix(".svg"), None
+            print(f"\n(Couldn't render the PNG: {exc}; the SVG is still written.)")
+        print(f"\nShare card: {png_path or svg_path} (totals only: no repo names, commit messages or code)")
+        print(f"Post text:  {card.post_text(n)}")
     return 0
 
 

@@ -131,7 +131,8 @@ def pr_markdown(s: dict) -> str:
     else:
         lines += [f"**${s['usd']:,.2f}** API-equivalent · **{_wh(s['wh'])}** · {s['requests']:,} model requests",
                   "", f"<sub>{s['noted']} of {s['commits']} commits have notes from their authors · "
-                  "[aimpg](https://github.com/kumarganduri/aimpg) · energy is a range because model sizes aren't public</sub>"]
+                  "[aimpg](https://github.com/kumarganduri/aimpg) · energy is a range because model sizes aren't public"
+                  " · see your own: `uvx aimpg report`</sub>"]
     return "\n".join(lines) + "\n"
 
 
@@ -190,7 +191,7 @@ def rollup_markdown(r: dict) -> str:
         "", "| week | AI spend | commits |", "|---|---|---|",
         *[f"| {w} | ${v['usd']:,.2f} | {v['commits']} |" for w, v in r["weeks"].items()],
         "", f"<sub>{r['contributors']} people share notes · no per-person numbers, by design · "
-        "[aimpg](https://github.com/kumarganduri/aimpg)</sub>",
+        "[aimpg](https://github.com/kumarganduri/aimpg) · see your own: `uvx aimpg report`</sub>",
     ]
     return "\n".join(lines) + "\n"
 

@@ -92,7 +92,7 @@ def pr_markdown(attribution: Attribution, shas: list[str], repo_name: str) -> st
     lines += [
         "",
         f"<sub>{with_ai} of {len(shas)} commits had their own AI work · measured locally by [aimpg](https://github.com/kumarganduri/aimpg) "
-        "from Claude Code logs; energy is a range because model sizes aren't public.</sub>",
+        "from Claude Code logs; energy is a range because model sizes aren't public · see your own: `uvx aimpg report`</sub>",
     ]
     return "\n".join(lines) + "\n"
 

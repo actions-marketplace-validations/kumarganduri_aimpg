@@ -52,6 +52,10 @@ Team export? Add `--cursor-user "Your Name"` to count only your rows.
 ### 1. See your AI footprint in terms you can picture
 `aimpg report` reads the Claude Code (and Codex CLI) logs already on your machine and ties every AI request to the git commit it produced. Energy is shown as an honest range and translated into kettles, phone charges, EV kilometres and CO₂. Money is the cost at Anthropic's and OpenAI's API list prices; on a subscription you pay less, so read it as the value of the work, not your bill.
 
+`aimpg report --share` also writes a card to post, with totals only (no repo names, commit messages or code), and prints a one-line post to go with it:
+
+![aimpg share card](docs/receipt-card.png)
+
 ### 2. Get tips measured on your own habits, not generic advice
 The receipt replays your own logs under "what if" rules and tells you what would have saved the most, in Wh and dollars. For example: how much energy went into re-reading old conversation in long sessions, or into running the biggest model for routine fixes.
 
@@ -129,7 +133,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - uses: kumarganduri/aimpg@v0.6.1   # or pin a commit SHA: it runs with your repo token
+      - uses: kumarganduri/aimpg@v0.6.2   # or pin a commit SHA: it runs with your repo token
         with:
           mode: ${{ github.event_name == 'pull_request' && 'pr' || 'rollup' }}
           comment: "true"
@@ -162,6 +166,8 @@ For a standard figure, `aimpg sci --json sci.json` reports your carbon intensity
 **Energy:** an estimate with stated assumption ranges, not a measurement: a physical formula, not a price proxy. Prefill compute for new input, one KV-cache re-read per output token (so long contexts cost more), plus datacenter overhead. Model sizes aren't public, so every number is a range. Overheads follow Google's full-stack measurement of a median Gemini prompt (chips, host CPU and memory, idle capacity, cooling ≈ 1.7× the chips alone), and a chat-sized prompt on a mid-size model comes out at 0.017–0.34 Wh, bracketing Google's disclosed 0.24 Wh ([arXiv 2508.15734](https://arxiv.org/pdf/2508.15734)). Sources for every factor are in [`aimpg/factors.json`](aimpg/factors.json), [`aimpg/prices.json`](aimpg/prices.json) and [`aimpg/equivalences.json`](aimpg/equivalences.json).
 
 **Replays:** each run starts from the code just before your commit, in a fresh, history-free copy, inside a sandbox (Seatbelt on macOS, bubblewrap on Linux). The only network allowed is the model API, through an allowlisting proxy. Your own tests judge the result, and edited tests are always restored before judging. Every token count is cross-checked against Claude Code's own totals. Details are in [docs/designs/aimpg-design.md](docs/designs/aimpg-design.md).
+
+Questions people ask (is it sponsored, are the energy numbers guesses, is it safe to run): see the [FAQ](docs/FAQ.md).
 
 ## Limits (honest list)
 
