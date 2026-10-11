@@ -215,13 +215,18 @@ def _commit_requirements(commit: Commit, layout: Layout) -> str:
     return "\n".join(l for l in proc.stdout.splitlines() if l and not l.startswith(("#", "-e ", "./", ".")))
 
 
-def clone_for_run(commit: Commit, layout: Layout, prepared: Path, run_id: str) -> Path:
-    """Per-run copy (APFS clone) + offline re-sync so imports point at this copy."""
+def clone_for_run(commit: Commit, layout: Layout, prepared: Path, run_id: str, *, keep_run_dir: bool = False) -> Path:
+    """Per-run copy (APFS clone) + offline re-sync so imports point at this copy.
+
+    keep_run_dir: replace only the code, keeping the run's config folder (a resumed
+    session in the fresh-session experiment needs the same folder and path)."""
     run_dir = layout.run_dir(run_id)
-    if run_dir.exists():
+    if run_dir.exists() and not keep_run_dir:
         shutil.rmtree(run_dir)
-    run_dir.mkdir(parents=True)
+    run_dir.mkdir(parents=True, exist_ok=True)
     work = run_dir / "work"
+    if work.exists():
+        shutil.rmtree(work)
     # copy-on-write clone: APFS on macOS, reflink (btrfs/xfs) on Linux, else a plain copy
     clone = ["cp", "-c", "-R"] if sandbox.sys.platform == "darwin" else ["cp", "-a", "--reflink=auto"]
     subprocess.run([*clone, str(prepared), str(work)], check=True)

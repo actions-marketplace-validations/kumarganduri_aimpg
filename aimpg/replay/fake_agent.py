@@ -23,6 +23,12 @@ import uuid
 from pathlib import Path
 
 
+def _now_iso(i: int = 0) -> str:
+    """Millisecond timestamps a little after now, like real transcripts (runs are told apart by time)."""
+    t = time.time() + 0.001 * (i + 1)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + f".{int(t * 1000) % 1000:03d}Z"
+
+
 def transcript(cfg: Path, cwd: Path, model: str, n: int) -> tuple[dict, dict]:
     """Writes n requests. Returns (last request's usage, running totals), like Claude Code."""
     session = str(uuid.uuid4())
@@ -39,7 +45,7 @@ def transcript(cfg: Path, cwd: Path, model: str, n: int) -> tuple[dict, dict]:
                 "type": "assistant",
                 "sessionId": session,
                 "cwd": str(cwd),
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + f".{i:03d}Z",
+                "timestamp": _now_iso(i),
                 "requestId": f"req_fake_{session[:8]}_{i}",
                 "version": "fake",
                 "message": {"id": f"msg_{i}", "model": model, "content": [{"type": "text", "text": "..."}], "usage": usage},
@@ -139,6 +145,9 @@ def main() -> int:
         print(json.dumps(result))
         return 1
     result["usage"], result["modelUsage"] = transcript(cfg, cwd, model, 3)
+    result["session_id"] = "fake-session"
+    if "--resume" in args:  # a resumed session re-reads a longer context: make that visible in tokens
+        result["resumed"] = args[args.index("--resume") + 1]
     if mode == "budget":
         result.update(subtype="error_max_budget_usd", is_error=True)
     if mode == "escape":

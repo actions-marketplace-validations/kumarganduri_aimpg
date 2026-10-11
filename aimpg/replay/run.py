@@ -92,6 +92,7 @@ class Record:
     note: str = ""
     cost_known: bool = True  # False: unpriced model, or an agent whose tokens aimpg can't see
     agent: str = "claude"
+    extra: dict = field(default_factory=dict)  # setup-specific measurements (e.g. RTK's own command count)
 
 
 class BudgetExhausted(RuntimeError):
@@ -164,24 +165,37 @@ def _check_tokens(requests, result: dict) -> tuple[str, bool]:
     return "unverified (no modelUsage in result)", False
 
 
-def run_one(commit: Commit, setup: Setup, repeat: int, layout: Layout, cfg: Config, *, attempt: int = 0, solution: Path | None = None) -> Record:
-    run_id = f"{commit.sha[:10]}-{setup.name}-r{repeat}-a{attempt}"
+def run_one(commit: Commit, setup: Setup, repeat: int, layout: Layout, cfg: Config, *, attempt: int = 0,
+            solution: Path | None = None, run_id: str | None = None, task: str | None = None,
+            extra_args: tuple[str, ...] = (), resume_dir: Path | None = None, price_from_tokens: bool = False) -> Record:
+    """One agent run on one commit.
+
+    The fresh-session experiment (chain.py) also uses: `task` (a different prompt),
+    `extra_args` (e.g. --resume <session>), `resume_dir` (reuse an earlier run's
+    config folder and path, with the code replaced by this commit's starting point),
+    and `price_from_tokens` (price only this step's requests at list prices, since a
+    resumed session's own total may include the earlier step).
+    """
+    run_id = run_id or f"{commit.sha[:10]}-{setup.name}-r{repeat}-a{attempt}"
     started = time.time()
+
+    measured: dict = {}
 
     def record(outcome: str, *, usages=(), cost=0.0, check="", note="", model=None, cost_known=True) -> Record:
         return Record(run_id, commit.repo, commit.sha, setup.name, repeat, outcome, outcome == "passed",
                       model or setup.model or cfg.model, cost, round(time.time() - started, 1), [list(u) for u in usages],
-                      check, note[:500], cost_known, setup.agent)
+                      check, note[:500], cost_known, setup.agent, dict(measured))
 
+    dir_id = resume_dir.name if resume_dir is not None else run_id
     try:
-        work = workspace.clone_for_run(commit, layout, layout.prepared(commit.sha), run_id)
+        work = workspace.clone_for_run(commit, layout, layout.prepared(commit.sha), dir_id, keep_run_dir=resume_dir is not None)
     except WorkspaceError as exc:
         return record("harness_error", note=f"clone: {exc}")
     if cfg.task_mode == "tests":
         workspace.overlay_commit_tests(commit, work)  # shown to the agent; restored before judging
-    cfgdir = layout.run_dir(run_id) / "cfg"
-    cfgdir.mkdir(parents=True)
-    if setup.configure:
+    cfgdir = layout.run_dir(dir_id) / "cfg"
+    cfgdir.mkdir(parents=True, exist_ok=resume_dir is not None)
+    if setup.configure and resume_dir is None:
         try:
             setup.configure(cfgdir)
         except Exception as exc:  # never let one setup's tooling crash the batch
@@ -196,7 +210,8 @@ def run_one(commit: Commit, setup: Setup, repeat: int, layout: Layout, cfg: Conf
         except RuntimeError as exc:
             return record("harness_error", note=str(exc))
     try:
-        return _run_agent(commit, setup, layout, cfg, work, cfgdir, key, record)
+        return _run_agent(commit, setup, layout, cfg, work, cfgdir, key, record, measured,
+                          task=task, extra_args=extra_args, since=time.time() if price_from_tokens else None)
     finally:
         (cfgdir / "auth.json").unlink(missing_ok=True)  # the run folder is kept for audits; the key is not
 
@@ -211,7 +226,8 @@ def _codex_login(cfgdir: Path, key: str) -> None:
         raise RuntimeError(f"codex login failed: {(proc.stderr or proc.stdout)[-200:]}")
 
 
-def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: Path, cfgdir: Path, key: str, record) -> Record:
+def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: Path, cfgdir: Path, key: str, record,
+               measured: dict, *, task: str | None = None, extra_args: tuple[str, ...] = (), since: float | None = None) -> Record:
     run_id = cfgdir.parent.name
     with AllowlistProxy(setup.hosts) as proxy:
         profile = Profile(
@@ -223,7 +239,7 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
             proxy_socket=proxy.socket_path,
         )
         res = sandbox.run(
-            setup.argv(task_text(commit, cfg.task_mode), cfg.model, cfg.per_run_budget_usd, cfgdir),
+            [*setup.argv(task or task_text(commit, cfg.task_mode), cfg.model, cfg.per_run_budget_usd, cfgdir), *extra_args],
             profile=profile,
             profile_path=layout.profile_path(run_id),
             env=_agent_env(work, cfgdir, proxy, key, setup.key_env),
@@ -231,6 +247,11 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
             timeout=cfg.timeout,
         )
         blocked = proxy.blocked()
+    if setup.measure is not None:
+        try:
+            measured.update(setup.measure(cfgdir))
+        except Exception as exc:  # a measurement must never lose the run
+            measured["measure_error"] = str(exc)[:200]
 
     if setup.agent != "claude":
         return _finish_other(commit, setup, layout, work, cfgdir, res, blocked, record)
@@ -239,8 +260,12 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
     # audit trail (no key in it), in the run folder the agent can't write to, so no planted symlink is followed
     (cfgdir.parent / "result.json").write_text(json.dumps(result, indent=1))
     parsed = parse_logs(iter_log_files(cfgdir / "projects"))
+    if since is not None:  # only this step's requests (a resumed session's transcript holds the earlier step too)
+        parsed.requests = [r for r in parsed.requests if r.ts >= since]
     usages = [(r.usage.fresh_in, r.usage.cache_write, r.usage.cache_read, r.usage.output) for r in parsed.requests]
     cost = float(result.get("total_cost_usd") or 0.0)
+    if since is not None:
+        cost = sum(usage_cost(r.usage, r.model) or 0.0 for r in parsed.requests)
     note = f"blocked: {blocked[:5]}" if blocked else ""
     if result.get("escapes"):
         note += f" escapes: {result['escapes']}"

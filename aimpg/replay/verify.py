@@ -370,8 +370,9 @@ def add_parser(sub) -> None:
     v.add_argument("--cap", type=float, default=15.0, help="total USD cap (default 15)")
     v.add_argument("--per-run-budget", type=float, default=2.0, help="USD cap per Claude Code run (default 2)")
     v.add_argument("--batch-model", default="claude-sonnet-5-5", help="model for setups that don't name one")
-    v.add_argument("--task-mode", choices=("hint", "tests"), default="tests",
-                   help="tests: the commit's tests are shown (default, fairest for comparisons); hint: hidden")
+    v.add_argument("--task-mode", choices=("hint", "tests"), default="hint",
+                   help="hint: commit message + the new names the hidden tests use (default, closest to real work); "
+                        "tests: the commit's tests are shown (easier tasks)")
     v.add_argument("--public", action="store_true", help="put the repo URL and commit shas in the record so others can rerun it")
     v.add_argument("--yes", action="store_true", help="skip the cost confirmation")
     v.add_argument("--resume", type=Path, help="results file of an interrupted verify")

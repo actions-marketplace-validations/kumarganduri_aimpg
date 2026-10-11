@@ -98,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
     verify_mod.add_parser(sub)
     scoreboard_mod.add_parsers(sub)
     defaults_mod.add_parser(sub)
+    from aimpg.replay import study_cli
+
+    study_cli.add_parser(sub)
     args = parser.parse_args(argv)
     if args.command == "replay":
         return replay_cli.main(args)
@@ -107,6 +110,10 @@ def main(argv: list[str] | None = None) -> int:
         return scoreboard_mod.main(args)
     if args.command == "defaults":
         return defaults_mod.main(args)
+    if args.command == "study":
+        from aimpg.replay import study_cli
+
+        return study_cli.main(args)
     if args.command in ("statusline", "hook", "live"):
         from aimpg import live as live_mod
 

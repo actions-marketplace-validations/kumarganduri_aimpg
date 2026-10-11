@@ -60,6 +60,7 @@ class Setup:
     key_env: str = "ANTHROPIC_API_KEY"  # env var its API key is passed in ("" = none)
     template: list[str] = field(default_factory=list)  # "cmd": argv with {task} and {model}
     spec: dict = field(default_factory=dict)  # how verify records were made (no secrets)
+    measure: Callable[[Path], dict] | None = None  # after the run, outside the sandbox: extra measurements
 
     def __post_init__(self) -> None:
         if not NAME.fullmatch(self.name):
@@ -128,9 +129,24 @@ def _rtk_configure(cfg: Path) -> None:
         raise SetupUnavailable("rtk settings contain no hook")
 
 
+def _rtk_measure(cfg: Path) -> dict:
+    """RTK's own record for this run (it keeps it under the run's HOME): version, commands it
+    shortened, and the tokens it says it saved. A run where RTK never fired is flagged, not
+    dropped, so a study can report both ways. The agent could edit this file; it's RTK's
+    claim, while aimpg's own token counts come from the transcript."""
+    env = {"HOME": str(cfg), "PATH": "/usr/bin:/bin:" + str(Path(shutil.which("rtk") or "/usr/bin/rtk").parent)}
+    version = subprocess.run(["rtk", "--version"], env=env, capture_output=True, text=True, timeout=30).stdout.split()[-1:]
+    gain = subprocess.run(["rtk", "gain", "--format", "json"], env=env, capture_output=True, text=True, timeout=30)
+    summary = (json.loads(gain.stdout or "{}").get("summary") or {}) if gain.returncode == 0 else {}
+    commands = int(summary.get("total_commands") or 0)
+    return {"rtk_version": version[0] if version else None, "rtk_commands": commands,
+            "rtk_claimed_tokens_saved": int(summary.get("total_saved") or 0), "rtk_fired": commands > 0}
+
+
 BASELINE = Setup("claude-code", spec={"agent": "claude"})
 TERSE = Setup("claude-code+terse", extra_args=["--append-system-prompt", TERSE_PROMPT], spec={"agent": "claude", "append_prompt": TERSE_PROMPT})
-RTK = Setup("claude-code+rtk", configure=_rtk_configure, requires=("claude", "rtk"), spec={"agent": "claude", "rtk": True})
+RTK = Setup("claude-code+rtk", configure=_rtk_configure, requires=("claude", "rtk"), spec={"agent": "claude", "rtk": True},
+            measure=_rtk_measure)
 
 FAKE_AGENT = Path(__file__).with_name("fake_agent.py")
 

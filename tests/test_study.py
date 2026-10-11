@@ -66,3 +66,27 @@ def test_holm_adjusts_across_comparisons():
     b = compare(study(chal_cost=1.0, seed=3), "base", "chal")
     holm([a, b])
     assert a.p_holm >= a.p_per_solved and b.p_holm >= b.p_per_solved
+
+
+def test_study_report_from_result_files(tmp_path, capsys):
+    import json
+    from dataclasses import asdict
+
+    from aimpg.replay import study_cli
+
+    folder = tmp_path / "runs"
+    folder.mkdir()
+    data = study(chal_cost=0.5)
+    for repo in {r.repo for r in data}:
+        with open(folder / f"{repo}.jsonl", "w") as fh:
+            for r in data:
+                if r.repo == repo:
+                    d = asdict(r)
+                    d["setup"] = {"base": "claude-code", "chal": "claude-code@haiku"}[r.setup]
+                    fh.write(json.dumps(d) + "\n")
+    plan = {"name": "t", "cutoff": "2026-07-01", "commits_per_repo": 8, "repeats": 3, "baseline": "plain",
+            "challengers": ["haiku"], "repos": []}
+    assert study_cli._report(plan, folder=folder) == 0
+    out = capsys.readouterr().out
+    assert "claude-code@haiku vs claude-code" in out and "| yes |" in out
+    assert (tmp_path / "runs-report.md").exists() and (tmp_path / "runs-report.json").exists()

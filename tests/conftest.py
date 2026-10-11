@@ -101,3 +101,6 @@ def _never_read_the_real_agent_logs(tmp_path_factory, monkeypatch):
 
     monkeypatch.setattr(defaults, "REPLAY_STATE", tmp_path_factory.mktemp("defaults-replay"))
     monkeypatch.setattr(defaults, "VERIFY_STATE", tmp_path_factory.mktemp("defaults-verify"))
+    from aimpg.replay import study_cli
+
+    monkeypatch.setattr(study_cli, "STATE", tmp_path_factory.mktemp("study-state"))

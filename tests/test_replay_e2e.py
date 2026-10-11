@@ -287,3 +287,18 @@ def test_real_claude_code_starts_in_the_sandbox_and_reaches_anthropic(prepared):
     rec = run_one(commit, BASELINE, 0, layout, Config(model="claude-sonnet-5-5", per_run_budget_usd=0.5, total_cap_usd=1,
                                                        api_key="sk-ant-not-a-real-key-000", timeout=240))
     assert rec.outcome == "account_error", (rec.outcome, rec.note)
+
+
+def test_fresh_session_chain_pairs_continue_and_fresh_on_task_two(prepared, monkeypatch):
+    from aimpg.replay import chain
+
+    layout, commit, _, solution = prepared
+    solve = fake("solve")
+    for name, attr in (("chain-first", "FIRST"), ("chain-continue", "CONTINUE"), ("chain-fresh", "FRESH")):
+        monkeypatch.setattr(chain, attr, chain.Setup(name, program=solve.program, configure=solve.configure, requires=()))
+    # the fixture has one qualifying commit: it plays both steps (the mechanics are what's tested)
+    first, cont, fresh = chain.run_chain(commit, commit, 0, layout, cfg(), solutions={commit.sha: solution})
+    assert (first.outcome, cont.outcome, fresh.outcome) == ("passed",) * 3, (cont.note, fresh.note)
+    assert cont.commit == fresh.commit == commit.sha and (cont.setup, fresh.setup) == ("chain-continue", "chain-fresh")
+    assert cont.extra["prev_outcome"] == "passed" and len(cont.usages) == 3  # task 2's requests only
+    assert cont.cost_usd > 0 and fresh.cost_usd > 0  # priced from tokens at list prices
