@@ -59,7 +59,7 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
   - hypotheses and primary metrics;
   - the repo rule and commit rule;
   - the stopping rule and Holm correction;
-  - the RTK config approved by its maintainers;
+  - the RTK config approved by its maintainers (asked 2026-10-11: https://github.com/rtk-ai/rtk/discussions/4511; proceed with the stated config if no reply by 2026-10-18 and say so);
   - headline only if the direction holds in at least 5 of 6 repos.
 - [ ] D. A pilot (about $10) to size n, then the full study: about 55 commits × 3 repeats × (Haiku, Sonnet, Opus, Codex, RTK), plus the fresh-session chains. $80–250, approved by the user in the terminal.
 - [ ] E. At least 2–3 reruns by unaffiliated people, so "Reproduced" exists; friends' reruns are labeled as reruns. Get one team quote if possible.
