@@ -7,7 +7,8 @@ host the agent wants to reach.
 
 The allowlist changes per phase:
 
-    Phase A (prepare)   pypi.org, files.pythonhosted.org / registry.npmjs.org
+    Phase A (prepare)   pypi.org, files.pythonhosted.org / registry.npmjs.org, plus github.com
+                        and codeload.github.com for dependencies pinned to a commit
     Phase B (agent)     the agent's API only (api.anthropic.com, api.openai.com, ...)
     Phase C (judge)     nothing
 """
@@ -22,8 +23,11 @@ import threading
 from pathlib import Path
 from dataclasses import dataclass, field
 
-PYPI = frozenset({"pypi.org", "files.pythonhosted.org"})
-NPM = frozenset({"registry.npmjs.org"})
+# Lockfiles may pin dependencies to exact commits on GitHub (litestar's do), so installs
+# may also reach github.com and its tarball host. Install phase only; the agent never can.
+GIT_HOSTS = frozenset({"github.com", "codeload.github.com"})
+PYPI = frozenset({"pypi.org", "files.pythonhosted.org"}) | GIT_HOSTS
+NPM = frozenset({"registry.npmjs.org"}) | GIT_HOSTS
 ANTHROPIC = frozenset({"api.anthropic.com"})
 OPENAI = frozenset({"api.openai.com"})
 NOTHING: frozenset[str] = frozenset()

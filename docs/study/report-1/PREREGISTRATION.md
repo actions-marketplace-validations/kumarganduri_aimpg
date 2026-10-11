@@ -71,3 +71,12 @@ Everything else is reported as "not shown", with its interval.
 - aimpg is built by one developer using Claude Code (Anthropic).
 - The author pays for all runs, has no affiliation with any vendor tested, and receives nothing from them.
 - Every raw record, the selection lists and the analysis code are published, so anyone can rerun any commit with `aimpg verify --rerun`.
+
+## Changes before the freeze (no paid run has happened yet)
+- **2026-10-11, harness:**
+  - **Dependency groups:** installs use only dependency groups named like dev/test/testing, because installing every group pulled in docs tooling.
+  - **Git dependencies:** the install phase may also reach github.com and codeload.github.com, for dependencies a lockfile pins to a commit. The agent phase is unchanged.
+  - **macOS cache file:** the sandbox allows the xcrun cache file macOS's git and clang need.
+  - **Early give-up:** a repo whose first 5 candidates all fail to install is given up early.
+  - **Selection restart:** the commit selection was restarted from scratch after these changes.
+- **2026-10-11, repos:** pydantic now builds its Rust core from source inside the repo, so its commits can't be installed offline. By the replacement rule it is replaced by the first reserve, litestar.
