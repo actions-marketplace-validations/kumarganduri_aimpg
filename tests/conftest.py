@@ -97,3 +97,7 @@ def _never_read_the_real_agent_logs(tmp_path_factory, monkeypatch):
     from aimpg import scoreboard
 
     monkeypatch.setattr(scoreboard, "SECRET", tmp_path_factory.mktemp("aimpg-id") / "id")
+    from aimpg import defaults
+
+    monkeypatch.setattr(defaults, "REPLAY_STATE", tmp_path_factory.mktemp("defaults-replay"))
+    monkeypatch.setattr(defaults, "VERIFY_STATE", tmp_path_factory.mktemp("defaults-verify"))

@@ -70,6 +70,8 @@ Use sonnet: it solved 100% of tasks (best: 100%) at 3.1x lower cost per solved t
 
 It re-does your real past commits with each model in a locked sandbox, and **your own tests decide** what counts as solved.
 
+**Make it the team's default:** `aimpg defaults --repo .` reads that evidence and proposes the repo's default model for Claude Code; `--apply` writes it to `.claude/settings.json` (it asks first and keeps a backup). Commit it, and everyone on the repo starts with the model your own tests showed is good enough; anyone can still switch with `/model`.
+
 ### 4. Verify any efficiency claim on your own code
 Token savers, prompts, hooks, CLAUDE.md files, models, even other agents: one command reruns your real commits both ways in a locked sandbox, and your own tests judge them.
 ```bash

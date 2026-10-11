@@ -61,17 +61,26 @@ def rows(records: list[Record]) -> list[ModelRow]:
     return sorted(out.values(), key=lambda x: (x.usd_per_solved is None, x.usd_per_solved or 0))
 
 
+def pick(table: list[ModelRow]) -> ModelRow | None:
+    """The cheapest model per solved task whose solve rate is within 10 points of the best."""
+    solved = [r for r in table if r.solved and r.usd_per_solved is not None]
+    if not solved:
+        return None
+    best = max(r.solve_rate for r in table)
+    return min((r for r in solved if r.solve_rate >= best - GOOD_ENOUGH), key=lambda r: r.usd_per_solved, default=None)
+
+
 def recommend(table: list[ModelRow]) -> str:
     solved = [r for r in table if r.solved]
-    if not solved:
+    choice = pick(table)
+    if choice is None:
         return "No model solved any task: nothing to recommend yet."
     best = max(r.solve_rate for r in table)
-    good = [r for r in solved if r.solve_rate >= best - GOOD_ENOUGH]
-    pick = min(good, key=lambda r: r.usd_per_solved)
+    pick_ = choice
     priciest = max(solved, key=lambda r: r.usd_per_solved)
-    text = f"Use {pick.setup.split('@')[-1]}: it solved {pick.solve_rate:.0%} of tasks (best: {best:.0%})"
-    if priciest is not pick:
-        ratio = priciest.usd_per_solved / pick.usd_per_solved
+    text = f"Use {pick_.setup.split('@')[-1]}: it solved {pick_.solve_rate:.0%} of tasks (best: {best:.0%})"
+    if priciest is not pick_:
+        ratio = priciest.usd_per_solved / pick_.usd_per_solved
         text += f" at {ratio:.1f}x lower cost per solved task than {priciest.setup.split('@')[-1]}"
     text += "."
     if min(r.runs for r in table) < MIN_RUNS:
