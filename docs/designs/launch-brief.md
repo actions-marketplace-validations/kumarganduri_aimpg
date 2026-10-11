@@ -36,7 +36,7 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
 **Study first, launch around early November**, as "AI Coding MPG Report No. 1". Get quiet feedback in the Claude Code and Cursor communities in the meantime.
 
 **Checklist**
-- [ ] A. Honesty and safety fixes:
+- [x] A. Honesty and safety fixes (done 2026-10-11, 0.6.1; security review found 3 high, 3 medium and 5 low issues, all fixed with regression tests):
   - the fresh-session tip worded as "carried over", with both energy-range ends;
   - the live "/clear" line reworded;
   - "list-price equivalent" $;
@@ -46,7 +46,7 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
   - Action dependencies pinned by SHA;
   - markdown from notes escaped;
   - `/cso` security review.
-- [ ] B. Study infrastructure:
+- [ ] B. Study infrastructure (done: any-author selection, cutoffs (Claude Jun 2026, gpt-6.1-sol Apr 2026, so commits from 2026-07-01), selection manifest, study.py statistics, Haiku 5.5 pricing; to do: hint mode as default, RTK hook count and version, the fresh-session chain experiment, a study command):
   - `--any-author` selection;
   - per-model training cutoffs recorded;
   - hint mode as the primary result;
@@ -77,3 +77,6 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
   - Reddit staggered;
   - newsletters, then GSF.
   - The user posts from their own accounts.
+
+**Candidate repos** (found 2026-10-11, qualifying commits since 2026-07-01, offline tests judged from configs; check with a no-network test pass before pre-registering):
+pydantic/pydantic (87), Kludex/starlette (39), pallets/click (27), pyinfra-dev/pyinfra (53), axios/axios (36, unit tests only), lint-staged/lint-staged (32), recharts/recharts (136), homebridge/homebridge (69; check it's still active) or litestar-org/litestar (28).
