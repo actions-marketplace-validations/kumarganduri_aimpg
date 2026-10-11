@@ -59,7 +59,7 @@ def summary(in_window, energies: list[TaskEnergy]) -> list[str]:
         "YOUR AI CODING",
         f"  Energy   {_fmt_wh(everything)}",
         f"           ≈ {equivalence.everyday(everything)}",
-        f"  Money    {_usd(usd)} API-equivalent (Anthropic's and OpenAI's published prices"
+        f"  Money    {_usd(usd)} at API list prices (Anthropic's and OpenAI's; a subscription costs less"
         + (f"; {unknown} requests from unpriced models left out)" if unknown else ")"),
         f"  Output   {len(energies)} commits made with AI help",
     ]
@@ -134,8 +134,10 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
             add("")
             add("WHAT WOULD HAVE SAVED THE MOST (measured on your logs; upper bounds that overlap)")
             for i, t in enumerate(found, 1):
-                add(f"  {i}. {t.title}: up to {t.share:.0%} less energy, {_usd(t.saving_usd)}")
+                add(f"  {i}. {t.title}: {t.saving_text or f'up to {t.share:.0%} less energy, {_usd(t.saving_usd)}'}")
                 add(f"     {t.measured}.")
+                if t.caveat:
+                    add(f"     {t.caveat}.")
                 add(f"     ≈ {equivalence.everyday(t.saving_wh)}")
                 add(f"     → {t.action}.")
         if judged is not None:

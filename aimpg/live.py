@@ -259,7 +259,7 @@ def status_line(data: dict, state: SessionState, usual: float | None) -> str:
         else:
             parts.append(f"ctx {_k(ctx)}")
         if share >= CLEAR_HINT_SHARE and len(state.task) <= 3:
-            parts.append(f"/clear ≈ -{share:.0%} per request")
+            parts.append("next task? /clear")
     five = ((data.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
     if isinstance(five, (int, float)):
         parts.append(f"5h {five:.0f}%")
@@ -270,7 +270,8 @@ def commit_note(done: dict) -> str:
     msg = f"aimpg: that commit cost {_usd(done['cost'])} over {done['requests']} AI requests."
     share = done.get("stale_share", 0.0)
     if share >= CLEAR_HINT_SHARE:
-        msg += f" {share:.0%} of the context is from earlier work: /clear before the next task saves ~{share:.0%} per request."
+        msg += (f" {share:.0%} of the context is from earlier work. If the next task doesn't need it, /clear"
+                " (with a one-line summary) stops re-reading it on every request.")
     return msg
 
 

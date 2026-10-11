@@ -68,7 +68,7 @@ def test_status_line_colors_and_hints():
     line = status_line({"rate_limits": {"five_hour": {"used_percentage": 63}}}, s, usual=1.0)
     assert line.startswith("⚡ ") and "\033[31m" in line  # > 3x usual: red
     assert "usual $1.00" in line and "80% from before your last commit" in line and "5h 63%" in line
-    assert "/clear ≈ -80% per request" in line
+    assert "next task? /clear" in line and "per request" not in line  # no promised saving
     assert "\033[" not in status_line({}, SessionState(), usual=None)
 
 

@@ -25,7 +25,8 @@ def test_fresh_session_saving_comes_from_context_carried_past_a_commit():
     assert tip is not None
     assert 0.1 < tip.share < 0.6
     assert tip.saving_usd > 0 and tip.saving_wh.low > 0
-    assert "re-reading conversation from before your last commit" in tip.measured
+    assert "carried over from before your last commit" in tip.measured
+    assert "–" in tip.saving_text and "rebuild some context" in tip.caveat  # a range, never one overclaimed %
 
 
 def test_no_commits_means_no_fresh_session_tip():
