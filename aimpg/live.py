@@ -20,6 +20,7 @@ Nothing here talks to the network or changes how the agent works.
 from __future__ import annotations
 
 import json
+import shlex
 import os
 import statistics
 import subprocess
@@ -339,9 +340,17 @@ PREVIOUS = LIVE_DIR / "previous_statusline.json"
 OURS = ("aimpg statusline", "aimpg hook post-commit")
 
 
+def _write_json(path: Path, data: dict) -> None:
+    """Write via a temp file and rename, so Claude Code never reads a half-written settings file."""
+    tmp = path.with_name(f".{path.name}.aimpg-tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
 def planned_settings(current: dict, exe: str) -> dict:
     """The settings after install: our status line (wrapping any existing one) + a commit hook."""
     new = json.loads(json.dumps(current))
+    exe = shlex.quote(exe)  # a path with spaces or quotes must stay one argument
     new["statusLine"] = {"type": "command", "command": f"{exe} statusline"}
     hooks = new.setdefault("hooks", {}).setdefault("PostToolUse", [])
     if not any(h.get("command", "").endswith("hook post-commit") for e in hooks for h in e.get("hooks", [])):
@@ -367,7 +376,7 @@ def install(settings: Path = SETTINGS, exe: str = "aimpg", *, confirm=input) -> 
         backup = settings.with_suffix(f".json.aimpg-backup-{int(time.time())}")
         backup.write_text(settings.read_text())
     settings.parent.mkdir(parents=True, exist_ok=True)
-    settings.write_text(json.dumps(new, indent=2) + "\n")
+    _write_json(settings, new)
     return "Installed. It shows up after the next AI message. Undo any time with `aimpg live uninstall`."
 
 
@@ -389,7 +398,7 @@ def uninstall(settings: Path = SETTINGS) -> str:
             current["hooks"].pop("PostToolUse")
             if not current["hooks"]:
                 current.pop("hooks")
-    settings.write_text(json.dumps(current, indent=2) + "\n")
+    _write_json(settings, current)
     PREVIOUS.unlink(missing_ok=True)
     return "Removed. Your previous status line (if any) is back."
 

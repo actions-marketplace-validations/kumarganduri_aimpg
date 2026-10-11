@@ -265,7 +265,12 @@ def validate_upload(path: Path, data: bytes, *, author: str | None = None) -> li
             problems.append(f"run {i}: bad cost")
         if r.get("tokens") is not None and not (len(r["tokens"]) == 4 and all(isinstance(x, int) and x >= 0 for x in r["tokens"])):
             problems.append(f"run {i}: tokens must be four non-negative whole numbers")
-        key = (str(r.get("commit")), r.get("setup"), r.get("repeat"))
+        commit = r.get("commit")
+        if u.get("public") and not (isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit)):
+            problems.append(f"run {i}: a public record's commit must be a 40-character commit id")
+        elif not u.get("public") and not isinstance(commit, int):
+            problems.append(f"run {i}: a private record's commit must be a run-local number")
+        key = (str(commit), r.get("setup"), r.get("repeat"))
         if key in seen:
             problems.append(f"run {i}: duplicate")
         seen.add(key)

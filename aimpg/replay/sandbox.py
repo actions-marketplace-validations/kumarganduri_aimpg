@@ -32,6 +32,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -163,8 +164,10 @@ class Profile:
 
     def render(self) -> str:
         home = str(Path.home().resolve())
-        writable = [str(Path(p).resolve()) for p in self.writable]
-        readable = [str(Path(p).resolve()) for p in self.readable]
+        writable = [_profile_path(p) for p in self.writable]
+        readable = [_profile_path(p) for p in self.readable]
+        deny_roots = [_profile_path(p) for p in self.deny_roots]
+        shared = [d for d in SHARED_AREAS if os.path.isdir(d)]
         lines = [
             "(version 1)",
             "(deny default)",
@@ -179,13 +182,16 @@ class Profile:
             "(allow signal (target same-sandbox))",
             f'(allow file-read* (require-not (subpath "{home}")))',
         ]
-        for root in self.deny_roots:
-            lines.append(f'(deny file-read* file-write* (subpath "{Path(root).resolve()}"))')
+        # Readable outside $HOME, except places other programs and people keep data:
+        # shared temp folders (other tools' scratch, $TMPDIR), external volumes,
+        # other users' homes. This run's own folders are re-allowed below.
+        for root in [*shared, *deny_roots]:
+            lines.append(f'(deny file-read* file-write* (subpath "{root}"))')
         for d in readable:
             lines.append(f'(allow file-read* (subpath "{d}"))')
         for d in writable:
             lines.append(f'(allow file-read* file-write* (subpath "{d}"))')
-        for ancestor in sorted(_ancestors([*writable, *readable], [home, *map(str, self.deny_roots)])):
+        for ancestor in sorted(_ancestors([*writable, *readable], [home, *shared, *deny_roots])):
             lines.append(f'(allow file-read-metadata (literal "{ancestor}"))')
         lines.append('(allow file-write-data (literal "/dev/null") (literal "/dev/zero"))')
         if self.proxy_port is not None:
@@ -266,6 +272,19 @@ sys.exit(code if code >= 0 else 128 - code)
 """
 
 
+# Seatbelt profile strings can't contain these; a path with them is refused, never escaped
+# (security review 2026-10-11: a setup name in a foreign record could close the string and add rules).
+_UNSAFE = re.compile(r'["\\\x00-\x1f\x7f]')
+SHARED_AREAS = ("/private/tmp", "/private/var/folders", "/Volumes", "/Users")
+
+
+def _profile_path(p) -> str:
+    resolved = str(Path(p).resolve())
+    if _UNSAFE.search(resolved):
+        raise SandboxUnavailable(f"refusing a sandbox path with quotes, backslashes or control characters: {resolved!r}")
+    return resolved
+
+
 def _ancestors(paths: list[str], roots: list[str]) -> set[str]:
     """Parent dirs between a denied root and an allowed path: metadata only, so realpath() works."""
     out = set()
@@ -297,7 +316,7 @@ def run(argv: list[str], *, profile: Profile, profile_path: Path, env: dict[str,
         raise SandboxUnavailable(reason)
     if sys.platform == "darwin":
         profile_path.write_text(profile.render())
-        full = [_launcher("sandbox-exec"), "-f", str(profile_path), *argv]
+        full = [_launcher("sandbox-exec") or "/usr/bin/sandbox-exec", "-f", str(profile_path), *argv]
     else:
         inner = argv
         if profile.proxy_socket is not None:

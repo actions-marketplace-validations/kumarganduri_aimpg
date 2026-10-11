@@ -234,22 +234,78 @@ def clone_for_run(commit: Commit, layout: Layout, prepared: Path, run_id: str) -
     return work
 
 
+def _safe_parent(work: Path, rel: str) -> Path:
+    """The folder for `rel` inside `work`, with any symlinks on the way removed.
+
+    The agent can write anywhere in `work`, so it can plant a symlink where a
+    test file or folder goes; aimpg then writes on the host, outside the
+    sandbox, and would follow it (security review 2026-10-11). Each path
+    component is checked; a symlink is deleted and replaced by a real folder.
+    """
+    parts = Path(rel).parts
+    if not parts or Path(rel).is_absolute() or ".." in parts:
+        raise WorkspaceError(f"unsafe path in commit: {rel!r}")
+    cur = work
+    for part in parts[:-1]:
+        cur = cur / part
+        if cur.is_symlink() or (cur.exists() and not cur.is_dir()):
+            cur.unlink()
+        cur.mkdir(exist_ok=True)
+    return cur
+
+
+def safe_write(work: Path, rel: str, data: bytes) -> None:
+    import os
+
+    target = _safe_parent(work, rel) / Path(rel).name
+    if target.is_symlink():
+        target.unlink()
+    elif target.is_dir():
+        shutil.rmtree(target)
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+
+
 def overlay_commit_tests(commit: Commit, work: Path) -> None:
     """Phase C setup: put the commit's versions of its test files into the run."""
     for path in commit.test_files:
         data = file_at(commit.repo, commit.sha, path)
-        target = work / path
         if data is None:
-            target.unlink(missing_ok=True)
+            target = _safe_parent(work, path) / Path(path).name
+            if target.is_symlink() or target.is_file():
+                target.unlink()
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        safe_write(work, path, data)
 
 
 def overlay_commit_tree(commit: Commit, work: Path) -> None:
-    """The commit's full tree over a parent copy (used by the free pre-check)."""
+    """The commit's full tree over a parent copy (used by the free pre-check).
+
+    Written file by file through safe_write: install scripts ran in this folder
+    and a foreign repo's tree can itself contain symlinks, so nothing is
+    extracted through an existing link. Symlinks in the tree are recreated only
+    when they point inside the folder.
+    """
+    import io
+    import os
+    import tarfile
+
     tar = git(commit.repo, "archive", "--format=tar", commit.sha)
-    subprocess.run(["tar", "-x", "-C", str(work)], input=tar, check=True)
+    with tarfile.open(fileobj=io.BytesIO(tar)) as archive:
+        for m in archive.getmembers():
+            if m.isdir():
+                _safe_parent(work, m.name.rstrip("/") + "/x")
+            elif m.isfile():
+                safe_write(work, m.name, archive.extractfile(m).read())
+            elif m.issym():
+                link = _safe_parent(work, m.name) / Path(m.name).name
+                dest = (link.parent / m.linkname).resolve()
+                if not os.path.isabs(m.linkname) and str(dest).startswith(str(work.resolve()) + os.sep):
+                    if link.is_symlink() or link.is_file():
+                        link.unlink()
+                    if not link.exists():
+                        os.symlink(m.linkname, link)
 
 
 def test_argv(commit: Commit) -> list[str]:

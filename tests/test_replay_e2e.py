@@ -276,3 +276,14 @@ def test_real_codex_reaches_openai_through_the_sandbox_and_key_file_is_deleted(p
     print(rec.outcome, rec.note)
     assert rec.outcome == "account_error", (rec.outcome, rec.note)
     assert not list(layout.root.rglob("auth.json"))  # the key never stays on disk
+
+
+@pytest.mark.skipif(shutil.which("claude") is None, reason="claude not installed")
+def test_real_claude_code_starts_in_the_sandbox_and_reaches_anthropic(prepared):
+    """Free: a fake key gets Anthropic's 401, which proves Claude Code starts and talks through the proxy."""
+    from aimpg.replay.setups import BASELINE
+
+    layout, commit, _, _ = prepared
+    rec = run_one(commit, BASELINE, 0, layout, Config(model="claude-sonnet-5-5", per_run_budget_usd=0.5, total_cap_usd=1,
+                                                       api_key="sk-ant-not-a-real-key-000", timeout=240))
+    assert rec.outcome == "account_error", (rec.outcome, rec.note)

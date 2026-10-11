@@ -26,7 +26,23 @@ from aimpg.replay import sandbox
 from aimpg.replay.setups import SETUPS, with_model
 from aimpg.replay.workspace import Layout
 
-ROOT = sandbox.TMP / "aimpg-replay"  # outside $HOME; every agent profile denies it
+ROOT = sandbox.TMP / f"aimpg-replay-{os.getuid()}"  # outside $HOME; every agent profile denies it
+
+
+def secure_root(root: Path | None = None) -> Path:
+    """The replay folder: per user, private (0700), and refused if someone else owns it.
+
+    A fixed shared /tmp path let another user on the machine create it first and
+    swap prepared workspaces, or read transcripts (security review 2026-10-11).
+    """
+    root = root or ROOT
+    root.mkdir(mode=0o700, exist_ok=True)
+    st = root.lstat()
+    if root.is_symlink() or st.st_uid != os.getuid():
+        raise SystemExit(f"{root} isn't a private folder you own; remove it and try again.")
+    if st.st_mode & 0o077:
+        os.chmod(root, 0o700)
+    return root
 STATE = Path.home() / ".aimpg" / "replay"  # selections + results, unreadable to agents
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_SETUPS = "claude-code,claude-code+terse,claude-code+rtk"
@@ -89,7 +105,7 @@ def _select(repo: Path, args) -> int:
     any_author = getattr(args, "any_author", False)
     commits, skipped = select.candidates(str(repo), time.time() - args.days * DAY, cutoff, any_author=any_author)
     print(f"{len(commits)} candidates after cheap filters; skipped: {skipped or 'none'}")
-    layout = Layout(ROOT)
+    layout = Layout(secure_root())
     good = []
     with AllowlistProxy() as proxy:
         for c in commits:
@@ -142,7 +158,7 @@ def _paid(repos: list[Path], args, *, calibrate: bool, models: bool = False) -> 
     kind = "calibration" if calibrate else "models" if models else "run"
     results = args.resume if getattr(args, "resume", None) else out_dir / f"{kind}-{args.task_mode}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     cfg = runner.Config(model=args.model, per_run_budget_usd=args.per_run_budget, total_cap_usd=cap, api_key=api_key, task_mode=args.task_mode)
-    batch = runner.Batch(chosen, setups, repeats, Layout(ROOT), cfg, results, done=done)
+    batch = runner.Batch(chosen, setups, repeats, Layout(secure_root()), cfg, results, done=done)
 
     def show(rec: runner.Record) -> None:
         print(f"  {rec.setup:<20} {rec.commit[:8]} r{rec.repeat}  {rec.outcome:<13} ${rec.cost_usd:.2f}  {rec.wall_s:.0f}s  tokens:{rec.tokens_check}")

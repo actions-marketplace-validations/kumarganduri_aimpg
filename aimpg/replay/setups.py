@@ -29,6 +29,23 @@ class SetupUnavailable(RuntimeError):
     pass
 
 
+import re as _re
+
+# Names become folder names and sandbox paths; models become CLI arguments; key
+# names pick which secret from your shell is handed to the agent. Records from
+# strangers set all of these, so each has a strict shape (security review 2026-10-11).
+NAME = _re.compile(r"[\w.+@\-]{1,60}")
+MODEL = _re.compile(r"[\w.:\-]{1,80}")
+KEY_ENV = _re.compile(r"[A-Z][A-Z0-9_]*_API_KEY")
+HOST = _re.compile(r"[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?)+")
+
+
+def check_model(model: str | None) -> str | None:
+    if model is not None and not MODEL.fullmatch(model):
+        raise SetupUnavailable(f"not a model name: {model!r}")
+    return model
+
+
 @dataclass
 class Setup:
     name: str
@@ -43,6 +60,16 @@ class Setup:
     key_env: str = "ANTHROPIC_API_KEY"  # env var its API key is passed in ("" = none)
     template: list[str] = field(default_factory=list)  # "cmd": argv with {task} and {model}
     spec: dict = field(default_factory=dict)  # how verify records were made (no secrets)
+
+    def __post_init__(self) -> None:
+        if not NAME.fullmatch(self.name):
+            raise SetupUnavailable(f"setup names may use letters, digits and .+@- only: {self.name!r}")
+        check_model(self.model)
+        if self.key_env and not KEY_ENV.fullmatch(self.key_env):
+            raise SetupUnavailable(f"only *_API_KEY variables can be passed to an agent: {self.key_env!r}")
+        bad = [h for h in self.hosts if not HOST.fullmatch(h)]
+        if bad:
+            raise SetupUnavailable(f"not host names: {bad}")
 
     def check(self) -> None:
         missing = [b for b in self.requires if shutil.which(b) is None]

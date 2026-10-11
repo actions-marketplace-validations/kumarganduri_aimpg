@@ -70,12 +70,16 @@ def manifest(cutoff: str, any_author: bool, candidates_: list[Commit], qualified
 
 def commit_at(repo: str, sha: str) -> Commit:
     """One named commit, without the authorship/cutoff filters (rerunning someone's public record)."""
-    files = workspace.git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", sha).decode().split()
-    parents = workspace.git(repo, "rev-list", "--parents", "-n", "1", sha).decode().split()[1:]
+    import re
+
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise WorkspaceError(f"not a commit id: {sha[:60]!r}")
+    files = workspace.git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "--end-of-options", sha).decode().split()
+    parents = workspace.git(repo, "rev-list", "--parents", "-n", "1", "--end-of-options", sha).decode().split()[1:]
     if len(parents) != 1:
         raise WorkspaceError(f"{sha[:10]} is a merge or root commit")
     subject, body = _message(repo, sha)
-    ts = float(workspace.git(repo, "log", "-1", "--format=%ct", sha).decode().strip())
+    ts = float(workspace.git(repo, "log", "-1", "--format=%ct", "--end-of-options", sha).decode().strip())
     tests = sorted(f for f in files if TEST_FILE.search(f))
     return Commit(repo, sha, parents[0], subject, body, tests, sorted(set(files) - set(tests)), ts=ts)
 

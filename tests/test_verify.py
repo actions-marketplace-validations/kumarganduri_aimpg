@@ -108,7 +108,7 @@ def test_command_challenger_needs_hosts_and_a_task_slot():
 def test_specs_round_trip_for_reruns():
     custom = S.custom(model="haiku", append_prompt="be brief", claude_md="# rules", settings='{"hooks": {}}')
     for setup in (S.BASELINE, S.RTK, S.with_model("opus"), S.codex("gpt-6-luna"), custom,
-                  S.command("tool {task}", ["api.example.com"], "TOOL_KEY")):
+                  S.command("tool {task}", ["api.example.com"], "TOOL_API_KEY")):
         again = setup_from_spec({"name": setup.name, **setup.spec})
         assert (again.name, again.agent, again.model, again.extra_args) == (setup.name, setup.agent, setup.model, setup.extra_args)
 
@@ -156,10 +156,10 @@ def test_private_records_never_hold_prompt_claude_md_hosts_or_command_text():
     from aimpg.replay.verify import _spec
 
     mine = S.custom(append_prompt="internal: ask #team-secrets", claude_md="db at db.internal.corp", settings='{"hooks": {"x": 1}}')
-    cmd = S.command("tool --gateway llm.internal.corp {task}", ["llm.internal.corp"], "CORP_KEY")
+    cmd = S.command("tool --gateway llm.internal.corp {task}", ["llm.internal.corp"], "CORP_API_KEY")
     for setup in (mine, cmd):
         private = json.dumps(_spec(setup, public=False))
-        assert "internal" not in private and "CORP_KEY" not in private and "hooks" not in private
+        assert "internal" not in private and "CORP_API_KEY" not in private and "hooks" not in private
         assert "_sha256" in private  # still tells setups apart
     assert "db.internal.corp" in json.dumps(_spec(mine, public=True))  # --public is the user's explicit choice
 

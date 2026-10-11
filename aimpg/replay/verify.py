@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import secrets
 import subprocess
@@ -319,6 +320,8 @@ def _same(a, b) -> bool:
 def setup_from_spec(spec: dict) -> S.Setup:
     """Rebuild a setup from a record (for --rerun). Needs a --public record for settings or commands."""
     agent, name = spec.get("agent"), spec["name"]
+    if not isinstance(name, str) or not S.NAME.fullmatch(name):  # becomes a folder and sandbox path
+        raise S.SetupUnavailable(f"setup names may use letters, digits and .+@- only: {str(name)[:80]!r}")
     if agent == "codex":
         return S.codex(spec.get("model"))
     if agent == "cmd":
@@ -382,7 +385,7 @@ def main(args) -> int:
         if args.check:
             return _check(args.check)
         return _run(args)
-    except VerifyError as exc:
+    except (VerifyError, S.SetupUnavailable) as exc:
         print(f"verify: {exc}")
         return 1
 
@@ -429,7 +432,7 @@ def describe_foreign(record: dict) -> str:
         lines.append(f"{role}: {spec['name']} (agent {spec.get('agent', 'claude')}, model {spec.get('model') or 'default'})")
         for key, label in (("command", "command it runs"), ("settings", "settings.json (hooks run commands)"),
                            ("append_prompt", "extra system prompt"), ("claude_md", "CLAUDE.md given to the agent"),
-                           ("hosts", "hosts it may reach")):
+                           ("hosts", "hosts it may reach"), ("key_env", "secret from your shell handed to it")):
             if spec.get(key):
                 value = spec[key] if isinstance(spec[key], str) else ", ".join(spec[key])
                 lines.append(f"  {label}:\n" + "\n".join("    | " + l for l in value.splitlines()))
@@ -449,7 +452,7 @@ def _selection_view(selection: dict, public: bool) -> dict:
 
 def _confirm_foreign(record: dict) -> bool:
     print("This record was written by someone else. It will run, in the sandbox, with your API key:\n")
-    print(describe_foreign(record))
+    print(re.sub(r"[\x00-\x08\x0b-\x1f\x7f\u202a-\u202e\u2066-\u2069]", "?", describe_foreign(record)))
     return input("\nRun these on your machine? [y/N] ").strip().lower() == "y"
 
 
@@ -475,7 +478,7 @@ def _run(args) -> int:
         shas = sorted({r["commit"] for r in prior["runs"]})
         repeats = max(r["repeat"] for r in prior["runs"]) + 1
         task_mode, claim = prior["task_mode"], prior.get("claim", "")
-        layout = Layout(replay_cli.ROOT)
+        layout = Layout(replay_cli.secure_root())
         chosen = []
         with AllowlistProxy() as proxy:
             for sha in shas:
@@ -538,7 +541,7 @@ def _run(args) -> int:
     done = runner.completed(results) if args.resume else set()
     cfg = runner.Config(model=args.batch_model, per_run_budget_usd=args.per_run_budget, total_cap_usd=args.cap,
                         api_key=keys.get("ANTHROPIC_API_KEY", ""), task_mode=task_mode, keys=keys)
-    batch = runner.Batch(chosen, setups, repeats, Layout(replay_cli.ROOT), cfg, results, done=done)
+    batch = runner.Batch(chosen, setups, repeats, Layout(replay_cli.secure_root()), cfg, results, done=done)
     batch.run(on_record=lambda r: print(f"  {r.setup:<22} {r.commit[:8]} r{r.repeat}  {r.outcome:<13} "
                                         f"{'$%.2f' % r.cost_usd if r.cost_known else '$?':>6}  {r.wall_s:.0f}s"))
     if batch.stopped:

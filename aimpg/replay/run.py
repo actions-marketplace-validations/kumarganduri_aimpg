@@ -40,7 +40,8 @@ TOKEN_TOLERANCE = 0.02
 NOT_PASSED = ("tests_failed", "timeout", "budget_hit", "agent_error")
 # Found in the first tests-mode run: after the prepaid credit ran out, 47 runs
 # "failed" in 2s with "Credit balance is too low" and were counted against the agent.
-_ACCOUNT_ERROR = re.compile(r"credit balance|invalid x-api-key|authentication_error|permission_error|billing", re.I)
+_ACCOUNT_ERROR = re.compile(r"credit balance|invalid x-api-key|invalid api key|authentication_error|permission_error|billing", re.I)
+_ACCOUNT_STATUS = {401, 402, 403}  # Claude Code's result carries api_error_status
 # The same for OpenAI (Codex): no quota, bad key.
 _OPENAI_ACCOUNT_ERROR = re.compile(r"insufficient_quota|invalid_api_key|incorrect api key|401 unauthorized|exceeded your current quota", re.I)
 
@@ -120,6 +121,9 @@ def _agent_env(work: Path, cfg: Path, proxy: AllowlistProxy, api_key: str, key_e
         HOME=str(cfg),
         CLAUDE_CONFIG_DIR=str(cfg),
         CODEX_HOME=str(cfg),
+        # Claude Code keeps its own /tmp/claude-<uid> folder; shared temp folders are hidden
+        # from the sandbox, so point it at the run's config folder instead
+        CLAUDE_CODE_TMPDIR=str(cfg / "tmp"),
         HTTPS_PROXY=proxy.url,
         https_proxy=proxy.url,
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1",
@@ -127,6 +131,7 @@ def _agent_env(work: Path, cfg: Path, proxy: AllowlistProxy, api_key: str, key_e
         UV_OFFLINE="1",
         npm_config_offline="true",
     )
+    (cfg / "tmp").mkdir(exist_ok=True)
     if Path("/etc/ssl/cert.pem").exists():
         # Codex (rustls) can't reach the keychain's trust store inside the sandbox
         env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
@@ -231,7 +236,8 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
         return _finish_other(commit, setup, layout, work, cfgdir, res, blocked, record)
 
     result = parse_result(res.stdout)
-    (cfgdir / "result.json").write_text(json.dumps(result, indent=1))  # audit trail (no key in it)
+    # audit trail (no key in it), in the run folder the agent can't write to, so no planted symlink is followed
+    (cfgdir.parent / "result.json").write_text(json.dumps(result, indent=1))
     parsed = parse_logs(iter_log_files(cfgdir / "projects"))
     usages = [(r.usage.fresh_in, r.usage.cache_write, r.usage.cache_read, r.usage.output) for r in parsed.requests]
     cost = float(result.get("total_cost_usd") or 0.0)
@@ -248,7 +254,7 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
     if "budget" in subtype:
         return record("budget_hit", usages=usages, cost=cost, check=check, note=note)
     message = str(result.get("result") or "")
-    if result.get("is_error") and _ACCOUNT_ERROR.search(message):
+    if result.get("is_error") and (_ACCOUNT_ERROR.search(message) or result.get("api_error_status") in _ACCOUNT_STATUS):
         # The account can't make calls (no credit, bad key): not the agent's fault,
         # and every later run would fail the same way. The batch stops on this.
         return record("account_error", usages=usages, cost=cost, check=check, note=message[:300])

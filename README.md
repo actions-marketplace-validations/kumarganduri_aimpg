@@ -129,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
-      - uses: kumarganduri/aimpg@v0.6.0
+      - uses: kumarganduri/aimpg@v0.6.1   # or pin a commit SHA: it runs with your repo token
         with:
           mode: ${{ github.event_name == 'pull_request' && 'pr' || 'rollup' }}
           comment: "true"
