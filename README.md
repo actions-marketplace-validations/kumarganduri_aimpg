@@ -6,7 +6,7 @@
 uvx aimpg report
 ```
 
-**New here? [aimpg in 5 minutes](https://claude.ai/artifact/YXnKsJPwX2kJDDiub3Jbzw)** walks you from install to your first numbers, the live status line, and your team's GitHub Action, with copy buttons for every command.
+**New here? [aimpg in 5 minutes](https://kumarganduri.github.io/aimpg-scoreboard/start/)** walks you from install to your first numbers, the live status line, and your team's GitHub Action, with copy buttons for every command.
 
 ```
 YOUR AI CODING
