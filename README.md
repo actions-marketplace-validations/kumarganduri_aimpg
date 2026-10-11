@@ -8,6 +8,8 @@ uvx aimpg report
 
 **New here? [aimpg in 5 minutes](https://kumarganduri.github.io/aimpg-scoreboard/start/)** walks you from install to your first numbers, the live status line, and your team's GitHub Action, with copy buttons for every command.
 
+**Using it as a GitHub Action?** Add `uses: kumarganduri/aimpg@v0.6.3` to a workflow and every pull request shows its AI cost, and every week your team's cost per working change. Copy the workflow from [Team numbers, without a server](#6-team-numbers-without-a-server).
+
 ```
 YOUR AI CODING
   Energy   17.31 kWh – 156.95 kWh
