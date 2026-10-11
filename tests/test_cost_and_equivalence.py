@@ -59,3 +59,13 @@ def test_codex_models_are_priced_from_openais_table():
     assert usage_cost(Usage(fresh_in=1_000_000, cache_read=1_000_000, output=1_000_000), "gpt-6-luna") == pytest.approx(0.61)
     assert usage_cost(Usage(output=1_000_000), "gpt-6.1-sol") == pytest.approx(10.0)
     assert usage_cost(Usage(output=1), "gpt-unknown") is None
+
+
+def test_haiku_5_5_is_priced_by_prompt_length():
+    from aimpg.cost import usage_cost
+    from aimpg.model import Usage
+
+    short = Usage(fresh_in=50_000, output=1_000_000)  # prompt 50k: base prices
+    long = Usage(fresh_in=150_000, output=1_000_000)  # prompt over 100k: the whole request at higher prices
+    assert usage_cost(short, "claude-haiku-5-5") == pytest.approx(0.05 * 0.10 + 0.50)
+    assert usage_cost(long, "claude-haiku-5-5") == pytest.approx(0.15 * 0.50 + 2.50)

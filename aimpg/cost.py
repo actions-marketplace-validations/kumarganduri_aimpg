@@ -31,6 +31,9 @@ def usage_cost(usage: Usage, model: str) -> float | None:
     p = price_for(model)
     if p is None:
         return None
+    tier = p.get("long_prompt")
+    if tier and usage.ctx_len > tier["over_tokens"]:  # e.g. Haiku 5.5: the whole request at the higher prices
+        p = tier
     one_hour = min(usage.cache_write_1h, usage.cache_write)
     return (
         usage.fresh_in * p["input"]

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import sys
@@ -40,6 +41,7 @@ def add_parser(sub) -> None:
     s.add_argument("--days", type=int, default=60)
     s.add_argument("--cutoff", default="2026-07-01", help="model training cutoff (YYYY-MM-DD); older commits are skipped")
     s.add_argument("--max", type=int, default=30, help="stop after this many qualifying commits")
+    s.add_argument("--any-author", action="store_true", help="include everyone's commits (studies on public repos)")
 
     for name, help_ in (
         ("calibrate", "paid: measure cost and noise on 2 commits"),
@@ -84,7 +86,8 @@ def main(args: argparse.Namespace) -> int:
 
 def _select(repo: Path, args) -> int:
     cutoff = datetime.strptime(args.cutoff, "%Y-%m-%d").timestamp()
-    commits, skipped = select.candidates(str(repo), time.time() - args.days * DAY, cutoff)
+    any_author = getattr(args, "any_author", False)
+    commits, skipped = select.candidates(str(repo), time.time() - args.days * DAY, cutoff, any_author=any_author)
     print(f"{len(commits)} candidates after cheap filters; skipped: {skipped or 'none'}")
     layout = Layout(ROOT)
     good = []
@@ -99,6 +102,8 @@ def _select(repo: Path, args) -> int:
                 good.append(c)
     out = _state(repo) / "selected.jsonl"
     select.save(good, out)
+    checked = commits[: commits.index(good[-1]) + 1] if good else commits
+    (out.with_name("selected.manifest.json")).write_text(json.dumps(select.manifest(args.cutoff, any_author, checked, good), indent=1))
     print(f"\n{len(good)} replayable commits saved to {out}")
     return 0 if good else 1
 

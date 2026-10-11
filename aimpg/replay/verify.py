@@ -359,6 +359,10 @@ def add_parser(sub) -> None:
     c.add_argument("--hosts", default="", help="comma list of API hosts it may reach, e.g. api.openai.com")
     c.add_argument("--key-env", default="", help="env var holding its API key (passed through from your shell)")
     v.add_argument("--commits", type=int, default=10)
+    v.add_argument("--order", choices=("random", "first"), default="random",
+                   help="which qualifying commits: a fixed random sample (default) or the first N after the cutoff (studies)")
+    v.add_argument("--any-author", action="store_true", help="include everyone's commits (studies on public repos)")
+    v.add_argument("--cutoff", default="2026-07-01", help="skip commits before the models' training cutoff (YYYY-MM-DD)")
     v.add_argument("--repeats", type=int, default=2)
     v.add_argument("--cap", type=float, default=15.0, help="total USD cap (default 15)")
     v.add_argument("--per-run-budget", type=float, default=2.0, help="USD cap per Claude Code run (default 2)")
@@ -432,6 +436,17 @@ def describe_foreign(record: dict) -> str:
     return "\n".join(lines)
 
 
+def _selection_view(selection: dict, public: bool) -> dict:
+    """How commits were chosen. Private records keep the counts and the fingerprint, not the shas."""
+    view = {k: selection.get(k) for k in ("cutoff", "any_author", "order", "candidates_sha256")}
+    view.update(candidates=len(selection.get("candidates", [])), qualified=len(selection.get("qualified", [])),
+                chosen_positions=[selection.get("qualified", []).index(s) for s in selection.get("chosen", [])
+                                  if s in selection.get("qualified", [])])
+    if public:
+        view["candidate_shas"] = selection.get("candidates", [])
+    return view
+
+
 def _confirm_foreign(record: dict) -> bool:
     print("This record was written by someone else. It will run, in the sandbox, with your API key:\n")
     print(describe_foreign(record))
@@ -448,7 +463,7 @@ def _run(args) -> int:
     repo = args.repo.expanduser().resolve()
     if not (repo / ".git").exists():
         raise VerifyError(f"{repo} is not a git repo (or doesn't exist). Pass --repo with your project's folder.")
-    prior = None
+    prior, selection = None, {}
     if args.rerun:
         prior = json.loads(args.rerun.read_text())
         if not prior.get("public"):
@@ -483,14 +498,18 @@ def _run(args) -> int:
             print("Finding commits whose tests can judge a rerun (free, no AI calls)…")
             import argparse
 
-            replay_cli._select(repo, argparse.Namespace(days=60, cutoff="2026-07-01", max=30))
+            replay_cli._select(repo, argparse.Namespace(days=120, cutoff=args.cutoff, max=max(30, args.commits),
+                                                        any_author=args.any_author))
         commits = select.load(selected) if selected.exists() else []
         if len(commits) < args.commits:
             raise VerifyError(f"only {len(commits)} replayable commits in {repo}; need {args.commits} (try --commits {len(commits)})"
                               if commits else f"no replayable commits in {repo} (see `aimpg replay select`)")
         import random
 
-        chosen = random.Random(7).sample(commits, args.commits)
+        chosen = commits[: args.commits] if args.order == "first" else random.Random(7).sample(commits, args.commits)
+        manifest_path = selected.with_name("selected.manifest.json")
+        selection = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        selection.update(order=args.order, chosen=[c.sha for c in chosen])
 
     setups = [baseline, challenger]
     keys = {}
@@ -530,7 +549,8 @@ def _run(args) -> int:
     record = build_record(records, claim=claim, baseline=baseline, challenger=challenger, repo=str(repo),
                           task_mode=task_mode, public=args.public if not prior else True,
                           attempts=runner.all_attempts(results), excluded=excluded,
-                          extra={"rerun_of": rerun_of} if rerun_of else None)
+                          extra={**({"rerun_of": rerun_of} if rerun_of else {}),
+                                 **({"selection": _selection_view(selection, args.public)} if not prior and selection else {})} or None)
     out = results.with_suffix(".record.json")
     out.write_text(json.dumps(record, indent=1))
     print()

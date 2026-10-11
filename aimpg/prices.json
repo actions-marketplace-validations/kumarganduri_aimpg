@@ -1,6 +1,6 @@
 {
-  "version": "2026-10-03b",
-  "source": "https://platform.claude.com/docs/en/about-claude/pricing (Model pricing table, fetched 2026-10-03)",
+  "version": "2026-10-11",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing (Model pricing table, fetched 2026-10-11). Claude Haiku 5.5 is priced by prompt length: a request whose prompt (all input incl. cache reads and writes) is over 100,000 tokens pays the long_prompt prices.",
   "unit": "USD per million tokens",
   "note": "Standard (global) API prices. For subscription users this is the API-equivalent value of the work, not a bill.",
   "models": {
@@ -101,6 +101,21 @@
       "cache_write_1h": 1.75,
       "cache_read": 0.175,
       "output": 14.0
+    },
+    "claude-haiku-5-5": {
+      "input": 0.1,
+      "cache_write_5m": 0.125,
+      "cache_write_1h": 0.2,
+      "cache_read": 0.01,
+      "output": 0.5,
+      "long_prompt": {
+        "over_tokens": 100000,
+        "input": 0.5,
+        "cache_write_5m": 0.625,
+        "cache_write_1h": 1.0,
+        "cache_read": 0.05,
+        "output": 2.5
+      }
     }
   },
   "openai_source": "https://developers.openai.com/api/docs/pricing (Standard tier, fetched 2026-10-03). gpt-5.3-codex lists no cache-write price; writes are priced as input."

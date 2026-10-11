@@ -202,3 +202,14 @@ def test_integrity_catches_inconsistent_records():
     problems, warnings = integrity(record)
     assert any("outcome" in p for p in problems) and any("non-negative" in p for p in problems)
     assert any("duplicate" in p for p in problems) and any("missing" in w for w in warnings)
+
+
+def test_selection_view_keeps_shas_out_of_private_records():
+    from aimpg.replay.verify import _selection_view
+
+    sel = {"cutoff": "2026-07-01", "any_author": True, "order": "first", "candidates": ["a" * 40, "b" * 40, "c" * 40],
+           "candidates_sha256": "f" * 64, "qualified": ["b" * 40, "c" * 40], "chosen": ["b" * 40]}
+    private = _selection_view(sel, public=False)
+    assert private["candidates"] == 3 and private["qualified"] == 2 and private["chosen_positions"] == [0]
+    assert "a" * 40 not in json.dumps(private)
+    assert _selection_view(sel, public=True)["candidate_shas"][0] == "a" * 40

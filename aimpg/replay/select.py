@@ -24,8 +24,11 @@ from aimpg.replay.workspace import TEST_FILE, Commit, Layout, Precheck, Workspac
 MIN_WORDS = 6
 
 
-def candidates(repo: str, since: float, cutoff: float) -> tuple[list[Commit], dict[str, int]]:
-    """Cheap filters (no installs, no test runs). Returns (commits, skip counts by reason)."""
+def candidates(repo: str, since: float, cutoff: float, *, any_author: bool = False) -> tuple[list[Commit], dict[str, int]]:
+    """Cheap filters (no installs, no test runs). Returns (commits oldest first, skip counts by reason).
+
+    any_author: include everyone's commits (studies on public repos); by default only yours.
+    """
     me = user_email(repo)
     skipped: dict[str, int] = {}
 
@@ -36,7 +39,7 @@ def candidates(repo: str, since: float, cutoff: float) -> tuple[list[Commit], di
     for c in load_commits(repo, since, reflog=False):
         tests = sorted(f for f in c.files if TEST_FILE.search(f))
         code = sorted(f for f in c.files if not TEST_FILE.search(f))
-        if c.author_email != me:
+        if not any_author and c.author_email != me:
             skip("not yours")
         elif c.ts <= cutoff:
             skip("before model training cutoff")
@@ -51,7 +54,18 @@ def candidates(repo: str, since: float, cutoff: float) -> tuple[list[Commit], di
                 skip("message too short")
             else:
                 out.append(Commit(repo, c.sha, parents[0], subject, body, tests, code, ts=c.ts))
+    out.sort(key=lambda c: c.ts)  # oldest first, so "the first N after the cutoff" is well defined
     return out, skipped
+
+
+def manifest(cutoff: str, any_author: bool, candidates_: list[Commit], qualified: list[Commit]) -> dict:
+    """What a study commits to: every candidate in order and which qualified, so cherry-picking would show."""
+    import hashlib
+
+    shas = [c.sha for c in candidates_]
+    return {"cutoff": cutoff, "any_author": any_author, "candidates": shas,
+            "candidates_sha256": hashlib.sha256("\n".join(shas).encode()).hexdigest(),
+            "qualified": [c.sha for c in qualified]}
 
 
 def commit_at(repo: str, sha: str) -> Commit:

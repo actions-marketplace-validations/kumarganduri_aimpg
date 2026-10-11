@@ -130,7 +130,7 @@ def fake(mode: str, agent: str = "claude") -> Setup:
 SETUPS = {s.name: s for s in (BASELINE, TERSE, RTK)}
 
 MODELS = {  # short names for the model picker → model ids Claude Code accepts
-    "haiku": "claude-haiku-4-5-20251001",
+    "haiku": "claude-haiku-5-5",
     "sonnet": "claude-sonnet-5-5",
     "opus": "claude-opus-5-5",
 }
