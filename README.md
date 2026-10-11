@@ -115,6 +115,13 @@ aimpg export --csv ai-energy.csv --no-subjects --no-authors
 ```
 One row per AI-assisted commit: date, repo, energy range, CO₂ range and cost. Teams can combine everyone's files. The privacy switches drop commit messages and author emails.
 
+For a standard figure, `aimpg sci --json sci.json` reports your carbon intensity in the Green Software Foundation's [SCI for AI](https://github.com/Green-Software-Foundation/sci-ai/blob/main/SPEC.md) format (Consumer SCI). It uses the spec's units: per million tokens, per AI-assisted commit (a "workflow execution" for agentic AI), and per working change. The JSON lists the boundary, every input with its source, and what's left out. Embodied hardware emissions come from Google's measured per-prompt figures; grid intensity is location-based, because the spec doesn't let offsets or renewable certificates lower the score.
+```
+  per million tokens         2.18–21 g CO₂e
+  per AI-assisted commit     19.3–185 g CO₂e
+  per working change         available from 2026-10-13
+```
+
 ## Privacy
 
 `report`, `pr` and `export` run entirely on your machine with no network calls (except `--fetch` for `git fetch`, and `pr --post`, which talks to GitHub). Your code and prompts are never uploaded. Replays send only the agent's own work to the model API, from a sandbox that can't read your home folder.

@@ -67,6 +67,11 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument("--no-subjects", action="store_true", help="leave commit messages out (privacy)")
     export.add_argument("--no-authors", action="store_true", help="leave author emails out (privacy)")
 
+    sci_p = sub.add_parser("sci", help="carbon intensity in the GSF SCI for AI format (per token, commit, working change)")
+    _common(sci_p, 30)
+    sci_p.add_argument("--grid", type=float, default=None, help="grid intensity in g CO2e/kWh (default: world average)")
+    sci_p.add_argument("--json", type=Path, default=None, help="also write the full disclosure as JSON")
+
     live = sub.add_parser("live", help="live status line + post-commit note inside Claude Code")
     live.add_argument("action", choices=("install", "uninstall"))
     sub.add_parser("statusline", help=argparse.SUPPRESS)  # called by Claude Code
@@ -147,6 +152,20 @@ def main(argv: list[str] | None = None) -> int:
 
     from aimpg import durable, ledger
     from aimpg.receipt import task_energy
+
+    if args.command == "sci":
+        from aimpg import sci
+
+        ledger.record(task_energy(attribution.tasks))
+        judged = durable.judge(ledger.load(), now)
+        in_window = [r for r in parsed.requests if r.ts >= since]
+        result = sci.compute(in_window, len(attribution.tasks), judged,
+                             grid=args.grid if args.grid is not None else sci.default_grid(), period=(since, now))
+        sys.stdout.write(sci.render(result))
+        if args.json:
+            sci.write(result, args.json)
+            print(f"\nFull disclosure (boundary, inputs, sources, ranges): {args.json}")
+        return 0
 
     ledger.record(task_energy(attribution.tasks))
     judged = durable.judge(ledger.load(), now)
