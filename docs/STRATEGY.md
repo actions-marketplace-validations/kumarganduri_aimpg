@@ -51,7 +51,7 @@ A monthly receipt is read once. Behavior changes at the moment of decision.
 |---|---|---|
 | **1** (~2 weeks) | Live status line + post-commit hook; durable-change metric; Codex/Cursor log readers; anchor energy to disclosed figures | 2–3 team pilots get a weekly "cost per working change" report plus one recommendation. **Success: at least 2 teams change a model or workflow policy because of it.** |
 | **2** | `aimpg verify` + public opt-in scoreboard; Linux sandbox so replays run in CI | Launch story: "RTK saved nothing" and "cheapest per token was most expensive per task"; contributors from outside |
-| **3** | Team defaults as settings; GitHub Action; SCI-for-AI export; team rollups | Teams adopting defaults; first standards/reporting citations |
+| **3** | Team defaults as settings (`aimpg defaults`, 0.5.0); GitHub Action + team rollups from git notes (0.6.0); SCI-for-AI export (`aimpg sci`, 0.5.0) | Teams adopting defaults; first standards/reporting citations |
 
 ## Funding stance
 
