@@ -156,9 +156,11 @@ def _report(plan: dict, folder: Path | None = None) -> int:
         print(f"No results in {folder} yet.")
         return 1
     base = setup_from(plan["baseline"]).name
-    comparisons = [study.compare(records, base, setup_from(c).name) for c in plan["challengers"]]
+    primary = plan.get("primary", {})
+    comparisons = [study.compare(records, base, setup_from(c).name, primary=primary.get(c, "per_solved"))
+                   for c in plan["challengers"]]
     if any(r.setup == "chain-fresh" for r in records):
-        comparisons.append(study.compare(records, "chain-continue", "chain-fresh"))
+        comparisons.append(study.compare(records, "chain-continue", "chain-fresh", primary=primary.get("fresh-session", "per_attempt")))
     study.holm(comparisons)
     text = study.render(comparisons)
     rtk = [r for r in records if r.setup == "claude-code+rtk"]

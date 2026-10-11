@@ -73,11 +73,14 @@ class Comparison:
     ratio_per_solved_ci: tuple[float, float] | None
     ratio_tokens: float | None
     ratio_tokens_ci: tuple[float, float] | None
-    p_per_solved: float | None
-    cheaper_in_repos: int
+    p_per_solved: float | None  # p of the PRIMARY metric (name kept for compatibility)
+    cheaper_in_repos: int  # repos where the challenger came out lower on the primary metric
     per_repo: dict[str, dict] = field(default_factory=dict)
     p_holm: float | None = None
     headline: bool = False
+    primary: str = "per_solved"  # per_solved | tokens | per_attempt
+    ratio_per_attempt: float | None = None
+    ratio_per_attempt_ci: tuple[float, float] | None = None
 
 
 def _group(records: list[Record]) -> dict[str, dict[str, list[Record]]]:
@@ -88,7 +91,7 @@ def _group(records: list[Record]) -> dict[str, dict[str, list[Record]]]:
     return out
 
 
-def _ratios(groups, baseline: str, challenger: str) -> tuple[float | None, float | None]:
+def _ratios(groups, baseline: str, challenger: str) -> tuple[float | None, float | None, float | None]:
     sums = {s: [0.0, 0, 0] for s in (baseline, challenger)}  # usd, solved, tokens
     for commits in groups:
         for runs in commits:
@@ -102,10 +105,17 @@ def _ratios(groups, baseline: str, challenger: str) -> tuple[float | None, float
     n_b = sum(1 for g in groups for runs in g for r in runs if r.setup == baseline)
     n_c = sum(1 for g in groups for runs in g for r in runs if r.setup == challenger)
     tokens = (c[2] / n_c) / (b[2] / n_b) if n_b and n_c and b[2] else None
-    return per_solved, tokens
+    per_attempt = (c[0] / n_c) / (b[0] / n_b) if n_b and n_c and b[0] else None
+    return per_solved, tokens, per_attempt
 
 
-def compare(records: list[Record], baseline: str, challenger: str, *, seed: int = 0) -> Comparison:
+METRICS = ("per_solved", "tokens", "per_attempt")
+
+
+def compare(records: list[Record], baseline: str, challenger: str, *, seed: int = 0, primary: str = "per_solved") -> Comparison:
+    """`primary` is the pre-registered metric: its p-value goes into Holm and the headline rule."""
+    if primary not in METRICS:
+        raise ValueError(f"primary must be one of {METRICS}")
     mine = [r for r in records if r.setup in (baseline, challenger)]
     by_repo = _group(mine)
     # only commits both arms attempted (a commit excluded for one setup is excluded for both)
@@ -121,20 +131,22 @@ def compare(records: list[Record], baseline: str, challenger: str, *, seed: int 
         a.usd += r.cost_usd
         a.tokens += _tokens(r)
     groups = [list(commits.values()) for commits in by_repo.values()]
-    point, tok_point = _ratios(groups, baseline, challenger)
+    point, tok_point, att_point = _ratios(groups, baseline, challenger)
 
     rng = random.Random(seed)
-    boot, boot_tok = [], []
+    boot, boot_tok, boot_att = [], [], []
     for _ in range(BOOTSTRAP if groups else 0):
         sample = []
         for _ in groups:  # resample repos, then commits within each
             g = groups[rng.randrange(len(groups))]
             sample.append([g[rng.randrange(len(g))] for _ in g])
-        r, t = _ratios(sample, baseline, challenger)
+        r, t, a = _ratios(sample, baseline, challenger)
         if r is not None:
             boot.append(r)
         if t is not None:
             boot_tok.append(t)
+        if a is not None:
+            boot_att.append(a)
 
     def ci(xs: list[float]) -> tuple[float, float] | None:
         if len(xs) < 100:
@@ -142,23 +154,28 @@ def compare(records: list[Record], baseline: str, challenger: str, *, seed: int 
         xs = sorted(xs)
         return (xs[int(0.025 * (len(xs) - 1))], xs[int(0.975 * (len(xs) - 1))])
 
+    idx = METRICS.index(primary)
+    p_point, p_boot = (point, tok_point, att_point)[idx], (boot, boot_tok, boot_att)[idx]
     p = None
-    if boot and point is not None:
-        below = sum(1 for x in boot if x < 1) / len(boot)
+    if p_boot and p_point is not None:
+        below = sum(1 for x in p_boot if x < 1) / len(p_boot)
         p = min(1.0, 2 * min(below, 1 - below))
 
     per_repo, cheaper = {}, 0
     for repo, commits in by_repo.items():
-        r, _ = _ratios([list(commits.values())], baseline, challenger)
+        r, t, a = _ratios([list(commits.values())], baseline, challenger)
+        primary_ratio = (r, t, a)[idx]
         k = {s: sum(x.passed for runs in commits.values() for x in runs if x.setup == s) for s in arms}
         n = {s: sum(1 for runs in commits.values() for x in runs if x.setup == s) for s in arms}
-        per_repo[repo] = {"ratio_per_solved": r, "solved": k, "runs": n, "commits": len(commits)}
-        cheaper += r is not None and r < 1
+        per_repo[repo] = {"ratio_per_solved": r, "ratio_tokens": t, "ratio_per_attempt": a, "solved": k, "runs": n,
+                          "commits": len(commits)}
+        cheaper += primary_ratio is not None and primary_ratio < 1
     return Comparison(
         baseline, challenger, len(by_repo), sum(len(c) for c in by_repo.values()), arms,
         {s: wilson(a.solved, a.runs) for s, a in arms.items()},
         {s: a.usd / a.runs if a.runs else 0.0 for s, a in arms.items()},
         point, ci(boot), tok_point, ci(boot_tok), p, cheaper, per_repo,
+        primary=primary, ratio_per_attempt=att_point, ratio_per_attempt_ci=ci(boot_att),
     )
 
 
@@ -171,7 +188,8 @@ def holm(comparisons: list[Comparison], *, alpha: float = 0.05) -> None:
         c.p_holm = running
     for c in comparisons:
         need = min(5, c.repos) if c.repos >= 6 else c.repos
-        direction = c.cheaper_in_repos if (c.ratio_per_solved or 1) < 1 else c.repos - c.cheaper_in_repos
+        ratio = {"per_solved": c.ratio_per_solved, "tokens": c.ratio_tokens, "per_attempt": c.ratio_per_attempt}[c.primary]
+        direction = c.cheaper_in_repos if (ratio or 1) < 1 else c.repos - c.cheaper_in_repos
         c.headline = bool(c.p_holm is not None and c.p_holm < alpha and c.repos and direction >= need)
 
 
@@ -179,18 +197,19 @@ def render(comparisons: list[Comparison]) -> str:
     def pct(x):
         return "—" if x is None else f"{x - 1:+.0%}"
 
-    lines = ["| challenger vs baseline | repos · commits | solved (95% CI) | $ per attempt | $ per solved task (95% CI) | tokens per attempt (95% CI) | cheaper in | headline |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = ["| challenger vs baseline | primary metric | repos · commits | solved (95% CI) | $ per attempt (95% CI) | $ per solved task (95% CI) | tokens per attempt (95% CI) | lower in | headline |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for c in comparisons:
         b, ch = c.arms[c.baseline], c.arms[c.challenger]
         lo, hi = c.solve_ci[c.challenger]
         rc = c.ratio_per_solved_ci
         tc = c.ratio_tokens_ci
+        ac = c.ratio_per_attempt_ci
         lines.append(
-            f"| {c.challenger} vs {c.baseline} | {c.repos} · {c.commits} | {ch.solve_rate:.0%} ({lo:.0%}–{hi:.0%}) vs {b.solve_rate:.0%} "
-            f"| ${c.cost_per_attempt[c.challenger]:.2f} vs ${c.cost_per_attempt[c.baseline]:.2f} "
+            f"| {c.challenger} vs {c.baseline} | {c.primary.replace('_', ' ')} | {c.repos} · {c.commits} | {ch.solve_rate:.0%} ({lo:.0%}–{hi:.0%}) vs {b.solve_rate:.0%} "
+            f"| ${c.cost_per_attempt[c.challenger]:.2f} vs ${c.cost_per_attempt[c.baseline]:.2f}, {pct(c.ratio_per_attempt)} ({pct(ac[0]) if ac else '—'} to {pct(ac[1]) if ac else '—'}) "
             f"| {pct(c.ratio_per_solved)} ({pct(rc[0]) if rc else '—'} to {pct(rc[1]) if rc else '—'}) "
             f"| {pct(c.ratio_tokens)} ({pct(tc[0]) if tc else '—'} to {pct(tc[1]) if tc else '—'}) "
             f"| {c.cheaper_in_repos} of {c.repos} repos | {'yes' if c.headline else 'no'} |")
-    lines += ["", "Intervals: 95%, bootstrap over repos then commits. Headline = Holm-adjusted p < 0.05 and the direction holds in ≥5 of 6+ repos."]
+    lines += ["", "Intervals: 95%, bootstrap over repos then commits. Headline = Holm-adjusted p < 0.05 on the pre-registered primary metric, and its direction holds in ≥5 of 6+ repos."]
     return "\n".join(lines)

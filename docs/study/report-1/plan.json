@@ -1,0 +1,28 @@
+{
+  "name": "report-1",
+  "cutoff": "2026-07-01",
+  "commits_per_repo": 7,
+  "repeats": 3,
+  "task_mode": "hint",
+  "baseline": "plain",
+  "challengers": ["haiku", "opus", "codex:gpt-6.1-sol", "rtk"],
+  "primary": {"haiku": "per_solved", "opus": "per_solved", "codex:gpt-6.1-sol": "per_solved", "rtk": "tokens", "fresh-session": "per_attempt"},
+  "chains_per_repo": 2,
+  "per_run_budget_usd": 2.0,
+  "cap_usd": 250,
+  "repos": [
+    {"url": "https://github.com/pydantic/pydantic", "path": "~/aimpg-study/pydantic"},
+    {"url": "https://github.com/Kludex/starlette", "path": "~/aimpg-study/starlette"},
+    {"url": "https://github.com/pallets/click", "path": "~/aimpg-study/click"},
+    {"url": "https://github.com/pyinfra-dev/pyinfra", "path": "~/aimpg-study/pyinfra"},
+    {"url": "https://github.com/axios/axios", "path": "~/aimpg-study/axios"},
+    {"url": "https://github.com/lint-staged/lint-staged", "path": "~/aimpg-study/lint-staged"},
+    {"url": "https://github.com/recharts/recharts", "path": "~/aimpg-study/recharts"},
+    {"url": "https://github.com/homebridge/homebridge", "path": "~/aimpg-study/homebridge"}
+  ],
+  "reserve_repos": [
+    {"url": "https://github.com/litestar-org/litestar", "path": "~/aimpg-study/litestar"},
+    {"url": "https://github.com/strawberry-graphql/strawberry", "path": "~/aimpg-study/strawberry"},
+    {"url": "https://github.com/Kludex/uvicorn", "path": "~/aimpg-study/uvicorn"}
+  ]
+}

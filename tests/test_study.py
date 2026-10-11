@@ -90,3 +90,12 @@ def test_study_report_from_result_files(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "claude-code@haiku vs claude-code" in out and "| yes |" in out
     assert (tmp_path / "runs-report.md").exists() and (tmp_path / "runs-report.json").exists()
+
+
+def test_primary_metric_decides_the_headline():
+    # tokens cut by 40% at the same cost: a token-saver's claim holds on tokens, not on dollars
+    data = study(chal_cost=1.0, tokens_ratio=0.6)
+    on_tokens, on_cost = compare(data, "base", "chal", primary="tokens"), compare(data, "base", "chal")
+    holm([on_tokens]), holm([on_cost])
+    assert on_tokens.headline and on_tokens.cheaper_in_repos == 6
+    assert not on_cost.headline
