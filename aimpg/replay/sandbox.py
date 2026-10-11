@@ -161,6 +161,7 @@ class Profile:
     deny_roots: list[Path] = field(default_factory=list)
     proxy_port: int | None = None  # None: no network at all
     proxy_socket: Path | None = None  # Linux: the proxy's Unix socket, relayed to 127.0.0.1:proxy_port inside
+    loopback: bool = True  # localhost networking for tests' own servers (never the internet)
 
     def render(self) -> str:
         home = str(Path.home().resolve())
@@ -197,7 +198,15 @@ class Profile:
         for ancestor in sorted(_ancestors([*writable, *readable], [home, *shared, *deny_roots])):
             lines.append(f'(allow file-read-metadata (literal "{ancestor}"))')
         lines.append('(allow file-write-data (literal "/dev/null") (literal "/dev/zero"))')
-        if self.proxy_port is not None:
+        if self.loopback:
+            # Tests and test plugins start servers on localhost (pytest-rerunfailures binds a socket at
+            # startup; axios's tests run local HTTP servers), and agents run those tests while working.
+            # The internet stays unreachable; the proxy port is on localhost too. macOS can't give a
+            # sandbox its own loopback, so services already listening on this machine's localhost are
+            # reachable (Linux runs get a private loopback).
+            lines += ["(allow system-socket)", '(allow network-bind (local ip "localhost:*"))',
+                      '(allow network-inbound (local ip "localhost:*"))', '(allow network-outbound (remote ip "localhost:*"))']
+        elif self.proxy_port is not None:
             lines += ["(allow system-socket)", f'(allow network-outbound (remote ip "localhost:{self.proxy_port}"))']
         return "\n".join(lines) + "\n"
 

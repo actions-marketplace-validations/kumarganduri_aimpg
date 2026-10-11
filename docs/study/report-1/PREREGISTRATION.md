@@ -78,5 +78,6 @@ Everything else is reported as "not shown", with its interval.
   - **Git dependencies:** the install phase may also reach github.com and codeload.github.com, for dependencies a lockfile pins to a commit. The agent phase is unchanged.
   - **macOS cache file:** the sandbox allows the xcrun cache file macOS's git and clang need.
   - **Early give-up:** a repo whose first 5 candidates all fail to install is given up early.
+  - **Localhost:** sandboxed code may use localhost networking, because test plugins and tests start local servers (litestar's pytest-rerunfailures binds a socket; axios runs local HTTP servers). Without this, agents couldn't run those tests either. The internet stays blocked.
   - **Selection restart:** the commit selection was restarted from scratch after these changes.
 - **2026-10-11, repos:** pydantic now builds its Rust core from source inside the repo, so its commits can't be installed offline. By the replacement rule it is replaced by the first reserve, litestar.

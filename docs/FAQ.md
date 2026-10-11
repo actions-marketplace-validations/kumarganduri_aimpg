@@ -25,7 +25,7 @@ A bill tells you the total. aimpg tells you what each change that shipped and la
 Maybe not. aimpg tells you how much of your agents' tokens were conversation carried over from before your last commit (57% for the author). It doesn't claim clearing saves all of that: a fresh session has to rebuild some context. Report No. 1 includes an experiment that measures the real difference on real commits.
 
 **Is it safe to run?**
-`report`, `live`, `sci` and `defaults` only read local logs and git. Replays run agents in a sandbox: Seatbelt on macOS, bubblewrap on Linux. The sandbox hides your home folder, temp folders and other users' files, and only reaches the model's API through an allowlisting proxy. A pre-launch security review found and fixed three high-severity issues (in 0.6.1), each with a regression test. `--rerun` of someone else's record shows every command, hook and prompt it would run, and asks first.
+`report`, `live`, `sci` and `defaults` only read local logs and git. Replays run agents in a sandbox: Seatbelt on macOS, bubblewrap on Linux. The sandbox hides your home folder, temp folders and other users' files, and only reaches the model's API through an allowlisting proxy. A pre-launch security review found and fixed three high-severity issues (in 0.6.1), each with a regression test. `--rerun` of someone else's record shows every command, hook and prompt it would run, and asks first. One limit: tests start local servers, so the sandbox allows localhost. On macOS that means services already listening on your machine's localhost are reachable from inside; on Linux each run gets its own private localhost.
 
 **What leaves my machine?**
 Nothing, unless you choose:

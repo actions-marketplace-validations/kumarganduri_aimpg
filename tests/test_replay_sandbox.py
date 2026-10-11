@@ -124,3 +124,16 @@ def test_launcher_is_an_absolute_system_path():
 
     name = "sandbox-exec" if sys.platform == "darwin" else "bwrap"
     assert sandbox._launcher(name).startswith("/")
+
+
+def test_local_servers_work_but_the_internet_does_not(layout):
+    py = "/usr/bin/python3"
+    serve = sh(f"""{py} -c "
+import socket, threading
+s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(1); port = s.getsockname()[1]
+threading.Thread(target=lambda: s.accept()[0].sendall(b'hi'), daemon=True).start()
+c = socket.create_connection(('127.0.0.1', port)); print(c.recv(2).decode())
+" """, layout)
+    assert serve.returncode == 0 and serve.stdout.strip() == "hi", serve.stderr
+    out = sh("/usr/bin/curl -s -m 5 -o /dev/null -w '%{http_code}' https://1.1.1.1", layout)
+    assert out.stdout.strip() in ("000", "")

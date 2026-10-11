@@ -175,6 +175,7 @@ Questions people ask (is it sponsored, are the energy numbers guesses, is it saf
 
 - Claude Code and Codex CLI logs are read automatically. Cursor keeps token usage on its servers, so it needs its usage export (below), and that export doesn't say which folder the work was in: give `--cursor-repo` and requests are matched to your next own commit there by time alone (shown as "by time only"). Replays and `verify` need macOS or Linux and an API key (about $0.10–0.30 per run). On Linux install bubblewrap (`sudo apt install bubblewrap`); Ubuntu 24.04+ also needs a one-time AppArmor rule for bwrap, which aimpg prints if it's missing.
 - Windows: `report`, `live` and the team commands are untested there; replays and `verify` need macOS or Linux.
+- Replays let code in the sandbox use localhost, because tests start local servers. On macOS that includes services already listening on your machine's localhost (a local database, for example). On Linux each run gets its own private localhost. The internet stays blocked except the model's API.
 - Energy is an estimate with a wide range (model sizes are guesses within stated bounds); dollars are close (within about 7% of Claude Code's own session totals on the author's logs).
 - Tips are upper bounds and overlap; they can't be added together.
 - Replays from commit messages alone are hard (12% solved on the author's repo); `--task-mode tests` shows the agent the tests, which makes tasks easier than real work but keeps comparisons fair.
