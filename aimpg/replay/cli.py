@@ -45,6 +45,7 @@ def secure_root(root: Path | None = None) -> Path:
     return root
 STATE = Path.home() / ".aimpg" / "replay"  # selections + results, unreadable to agents
 DEFAULT_MODEL = "claude-sonnet-5-5"
+SETUP_GIVE_UP = 5  # the first N candidates all fail to install: the repo can't be set up offline
 DEFAULT_SETUPS = "claude-code,claude-code+terse,claude-code+rtk"
 
 
@@ -106,7 +107,7 @@ def _select(repo: Path, args) -> int:
     commits, skipped = select.candidates(str(repo), time.time() - args.days * DAY, cutoff, any_author=any_author)
     print(f"{len(commits)} candidates after cheap filters; skipped: {skipped or 'none'}")
     layout = Layout(secure_root())
-    good = []
+    good, setup_failures = [], 0
     with AllowlistProxy() as proxy:
         for c in commits:
             if len(good) >= args.max:
@@ -116,6 +117,11 @@ def _select(repo: Path, args) -> int:
             print(f"  {mark} {c.sha[:8]} {c.subject[:60]:<60} {'' if check.ok else check.reason}")
             if check.ok:
                 good.append(c)
+            elif check.reason.startswith("setup failed") and not good:
+                setup_failures += 1
+                if setup_failures >= SETUP_GIVE_UP:
+                    print(f"  The first {SETUP_GIVE_UP} commits all fail to install here: giving up on this repo.")
+                    break
     out = _state(repo) / "selected.jsonl"
     select.save(good, out)
     checked = commits[: commits.index(good[-1]) + 1] if good else commits

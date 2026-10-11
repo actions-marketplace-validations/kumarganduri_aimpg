@@ -187,6 +187,9 @@ class Profile:
         # other users' homes. This run's own folders are re-allowed below.
         for root in [*shared, *deny_roots]:
             lines.append(f'(deny file-read* file-write* (subpath "{root}"))')
+        # macOS's /usr/bin/git, clang etc. are xcrun launchers that keep a cache file in the user's
+        # temp folder; allow exactly those files, the rest of the folder stays hidden
+        lines.append('(allow file-read* file-write* (regex #"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db"))')
         for d in readable:
             lines.append(f'(allow file-read* (subpath "{d}"))')
         for d in writable:

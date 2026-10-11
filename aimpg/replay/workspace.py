@@ -161,6 +161,31 @@ def _check(result: sandbox.Result, what: str) -> None:
         raise WorkspaceError(f"{what} failed: {(result.stderr or result.stdout)[-800:]}")
 
 
+_GROUP = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*=\s*\[", re.M)
+_TEST_GROUP = re.compile(r"(^|[-_])(dev|tests?|testing)($|[-_])")
+
+
+def test_groups(project: Path) -> list[str]:
+    """uv flags for the dependency groups tests need: those named like dev/test/testing.
+
+    Installing every group pulled in docs tooling fetched straight from GitHub
+    (pydantic), which the install sandbox rightly can't reach. Falls back to all
+    groups when a project has none of those names.
+    """
+    try:
+        text = (project / "pyproject.toml").read_text()
+    except OSError:
+        return ["--all-groups"]
+    section = re.search(r"^\[dependency-groups\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    names = _GROUP.findall(section.group(1)) if section else []
+    wanted = [n for n in names if _TEST_GROUP.search(n)]
+    if not names:
+        return []
+    if not wanted:
+        return ["--all-groups"]
+    return [f for n in wanted for f in ("--group", n)]
+
+
 def prepare(commit: Commit, layout: Layout, proxy: AllowlistProxy) -> Path:
     """Phase A, once per commit: parent tree + dependencies from the commit's lockfile (R17)."""
     dest = layout.prepared(commit.sha)
@@ -172,7 +197,7 @@ def prepare(commit: Commit, layout: Layout, proxy: AllowlistProxy) -> Path:
     if commit.kind == "python":
         proxy.set_allow(PYPI)
         reqs = _commit_requirements(commit, layout)
-        _check(_sandboxed(layout, "prepare", dest, ["uv", "sync", "--all-groups", "--quiet"], proxy=proxy, timeout=PREPARE_TIMEOUT), "uv sync")
+        _check(_sandboxed(layout, "prepare", dest, ["uv", "sync", *test_groups(dest), "--quiet"], proxy=proxy, timeout=PREPARE_TIMEOUT), "uv sync")
         if reqs:
             (dest / ".tmp").mkdir(exist_ok=True)
             (dest / ".tmp" / "commit-requirements.txt").write_text(reqs)
@@ -203,7 +228,7 @@ def _commit_requirements(commit: Commit, layout: Layout) -> str:
     (tmp / "uv.lock").write_bytes(lock)
     (tmp / "pyproject.toml").write_bytes(pyproject)
     proc = subprocess.run(
-        ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project", "--all-groups", "--quiet"],
+        ["uv", "export", "--frozen", "--no-hashes", "--no-emit-project", *test_groups(tmp), "--quiet"],
         cwd=tmp,
         capture_output=True,
         text=True,
@@ -232,7 +257,7 @@ def clone_for_run(commit: Commit, layout: Layout, prepared: Path, run_id: str, *
     subprocess.run([*clone, str(prepared), str(work)], check=True)
     (work / ".prepared").unlink(missing_ok=True)
     if commit.kind == "python":
-        _check(_sandboxed(layout, run_id, work, ["uv", "sync", "--offline", "--all-groups", "--quiet"], proxy=None, timeout=300), "offline re-sync")
+        _check(_sandboxed(layout, run_id, work, ["uv", "sync", "--offline", *test_groups(work), "--quiet"], proxy=None, timeout=300), "offline re-sync")
         reqs = work / ".tmp" / "commit-requirements.txt"
         if reqs.exists():
             _check(_sandboxed(layout, run_id, work, ["uv", "pip", "install", "--offline", "--quiet", "-r", ".tmp/commit-requirements.txt"], proxy=None, timeout=300), "offline commit deps")

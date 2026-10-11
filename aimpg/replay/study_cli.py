@@ -72,14 +72,49 @@ def _out(plan: dict) -> Path:
 def main(args) -> int:
     plan = load_plan(args.plan)
     if args.study_command == "select":
-        for r in plan["repos"]:
-            print(f"\n== {r['path']}")
-            _select(Path(r["path"]), argparse.Namespace(days=365, cutoff=plan["cutoff"], max=plan["commits_per_repo"] * 2,
-                                                        any_author=True))
-        return 0
+        return _select_all(plan)
     if args.study_command == "report":
         return _report(plan)
     return _run(plan, args)
+
+
+MIN_QUALIFYING = 5  # pre-registered: fewer qualifying commits than this and the repo is replaced by the next reserve
+
+
+def _qualified(repo: str) -> int:
+    path = _state(Path(repo)) / "selected.jsonl"
+    return len(select.load(path)) if path.exists() and path.read_text().strip() else 0
+
+
+def _select_all(plan: dict) -> int:
+    """Select each repo; apply the pre-registered replacement rule; write selection.json for `run`."""
+    reserves = [dict(r, path=str(Path(r["path"]).expanduser().resolve())) for r in plan.get("reserve_repos", [])]
+    summary = {"repos": [], "replaced": []}
+    queue = list(plan["repos"])
+    while queue:
+        r = queue.pop(0)
+        print(f"\n== {r['path']}")
+        if not Path(r["path"]).is_dir():
+            print(f"  not cloned: git clone --filter=blob:none --single-branch {r.get('url')} {r['path']}")
+            n = 0
+        else:
+            _select(Path(r["path"]), argparse.Namespace(days=365, cutoff=plan["cutoff"], max=plan["commits_per_repo"] * 2,
+                                                        any_author=True))
+            n = _qualified(r["path"])
+        if n >= MIN_QUALIFYING:
+            summary["repos"].append({"path": r["path"], "url": r.get("url"), "qualifying": n})
+        elif reserves:
+            nxt = reserves.pop(0)
+            summary["replaced"].append({"repo": r.get("url") or r["path"], "qualifying": n, "replaced_by": nxt.get("url")})
+            print(f"  {n} qualifying (< {MIN_QUALIFYING}): replaced by the next reserve, {nxt.get('url')}")
+            queue.insert(0, nxt)
+        else:
+            summary["replaced"].append({"repo": r.get("url") or r["path"], "qualifying": n, "replaced_by": None})
+            print(f"  {n} qualifying (< {MIN_QUALIFYING}) and no reserves left: dropped")
+    (_out(plan) / "selection.json").write_text(json.dumps(summary, indent=1))
+    print(f"\nIn the study: {len(summary['repos'])} repos. Replaced: {len(summary['replaced'])}. "
+          f"Summary: {_out(plan) / 'selection.json'}")
+    return 0
 
 
 def _selected(plan: dict, repo: str, n: int):
@@ -96,7 +131,11 @@ def _setups(plan: dict):
 
 def _run(plan: dict, args) -> int:
     setups = _setups(plan)
-    repos = plan["repos"][:1] if args.pilot else plan["repos"]
+    chosen = _out(plan) / "selection.json"
+    if not chosen.exists():
+        raise SystemExit("run `aimpg study select` first")
+    active = json.loads(chosen.read_text())["repos"]
+    repos = active[:1] if args.pilot else active
     n, repeats = (2, 1) if args.pilot else (plan["commits_per_repo"], plan["repeats"])
     chains = 1 if args.pilot else plan.get("chains_per_repo", 0)
     keys = {}
