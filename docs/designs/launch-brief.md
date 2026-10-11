@@ -46,7 +46,7 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
   - Action dependencies pinned by SHA;
   - markdown from notes escaped;
   - `/cso` security review.
-- [ ] B. Study infrastructure (done: any-author selection, cutoffs (Claude Jun 2026, gpt-6.1-sol Apr 2026, so commits from 2026-07-01), selection manifest, study.py statistics, Haiku 5.5 pricing; to do: hint mode as default, RTK hook count and version, the fresh-session chain experiment, a study command):
+- [x] B. Study infrastructure (done 2026-10-11: any-author selection, cutoffs (Claude Jun 2026, gpt-6.1-sol Apr 2026, so commits from 2026-07-01), selection manifest, study.py statistics, Haiku 5.5 pricing; also hint mode as default, RTK's own per-run count and version, the fresh-session experiment (chain.py), and `aimpg study select|run|report`):
   - `--any-author` selection;
   - per-model training cutoffs recorded;
   - hint mode as the primary result;
@@ -55,7 +55,7 @@ One maintainer; no budget beyond a few hundred dollars of API credit; must stay 
   - RTK version and hook-firing count (a run with zero firings is invalid);
   - a hash of the full qualifying-candidate list in each record;
   - the fresh-session chain experiment (continue vs /clear plus a summary over 2–3 consecutive commits).
-- [ ] C. Pre-registration committed before any paid run:
+- [ ] C. Pre-registration committed before any paid run (draft committed 2026-10-11: docs/study/report-1/; freeze after RTK replies or 2026-10-18 and after the free pre-check):
   - hypotheses and primary metrics;
   - the repo rule and commit rule;
   - the stopping rule and Holm correction;
