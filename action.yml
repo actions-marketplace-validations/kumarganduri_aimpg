@@ -45,7 +45,7 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        out="$RUNNER_TEMP/aimpg.md"
+        out="$RUNNER_TEMP/aimpg-$MODE.md"
         case "$MODE" in
           pr)
             base="origin/${BASE_REF:-main}"
