@@ -109,7 +109,32 @@ aimpg pr --base main --post     # add it as a comment on the open PR (uses gh)
 > ### ⚡ AI energy for this pull request
 > **73.4 Wh – 564.0 Wh** ≈ 4–33 full phone charges · 34–258 g CO₂ · **$5.76** API-equivalent
 
-### 6. Report for a team or a sustainability report
+### 6. Team numbers, without a server
+Each developer who opts in shares a small note on **their own** commits (cost, energy range, request count; never prompts or code) as git notes that travel with the repo:
+```bash
+aimpg notes push          # writes notes on your AI-assisted commits and pushes refs/notes/aimpg
+```
+Then add the GitHub Action to the repo:
+```yaml
+# .github/workflows/aimpg.yml
+on:
+  pull_request:
+  schedule: [{cron: "0 8 * * 1"}]          # weekly team rollup
+permissions: {contents: read, pull-requests: write}
+jobs:
+  aimpg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: kumarganduri/aimpg@v0.6.0
+        with:
+          mode: ${{ github.event_name == 'pull_request' && 'pr' || 'rollup' }}
+          comment: "true"
+```
+On pull requests it posts the PR's AI cost ("$4.10 · 0.20–1.90 kWh · 9 model requests"). Weekly, it writes the team's **cost per working change**, waste ratio and trend to the run summary. Working changes are judged from the repo's own history. Team numbers appear only once at least 5 people share notes (`min-group` lowers it if your team agrees), and never per person. Anyone with read access to the repo can read the notes.
+
+### 7. Report for a team or a sustainability report
 ```bash
 aimpg export --csv ai-energy.csv --no-subjects --no-authors
 ```

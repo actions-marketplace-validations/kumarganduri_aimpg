@@ -72,6 +72,22 @@ def main(argv: list[str] | None = None) -> int:
     sci_p.add_argument("--grid", type=float, default=None, help="grid intensity in g CO2e/kWh (default: world average)")
     sci_p.add_argument("--json", type=Path, default=None, help="also write the full disclosure as JSON")
 
+    notes_p = sub.add_parser("notes", help="share your AI cost per commit with your team, as git notes (metadata only)")
+    notes_p.add_argument("action", choices=("push", "write"), help="push: write notes on your commits and push them; write: local only")
+    _common(notes_p, 30)
+    notes_p.add_argument("--repo", type=Path, default=Path("."), help="repo to note (default: here)")
+    notes_p.add_argument("--remote", default="origin")
+
+    team_p = sub.add_parser("team", help="team numbers from aimpg git notes (used by the GitHub Action)")
+    team_sub = team_p.add_subparsers(dest="team_command", required=True)
+    tpr = team_sub.add_parser("pr", help="AI cost of this branch's commits")
+    tpr.add_argument("--repo", type=Path, default=Path("."))
+    tpr.add_argument("--base", default="origin/main", help="base ref (default origin/main)")
+    trl = team_sub.add_parser("rollup", help="cost per working change and waste ratio for the team")
+    trl.add_argument("--repo", type=Path, default=Path("."))
+    trl.add_argument("--days", type=int, default=90)
+    trl.add_argument("--min-group", type=int, default=5, help="people needed before numbers show (default 5)")
+
     live = sub.add_parser("live", help="live status line + post-commit note inside Claude Code")
     live.add_argument("action", choices=("install", "uninstall"))
     sub.add_parser("statusline", help=argparse.SUPPRESS)  # called by Claude Code
@@ -108,6 +124,21 @@ def main(argv: list[str] | None = None) -> int:
             print(live_mod.install(exe=exe))
         else:
             print(live_mod.uninstall())
+        return 0
+
+    if args.command == "team":
+        from aimpg import team
+
+        repo = str(args.repo.resolve())
+        if args.team_command == "pr":
+            try:
+                shas = share.branch_commits(args.repo, args.base)
+            except RuntimeError as exc:
+                print(f"Can't list this branch's commits: {exc}")
+                return 1
+            sys.stdout.write(team.pr_markdown(team.pr_summary(repo, shas)))
+        else:
+            sys.stdout.write(team.rollup_markdown(team.rollup(repo, days=args.days, min_group=args.min_group)))
         return 0
 
     if args.days <= 0:
@@ -152,6 +183,24 @@ def main(argv: list[str] | None = None) -> int:
 
     from aimpg import durable, ledger
     from aimpg.receipt import task_energy
+
+    if args.command == "notes":
+        from aimpg import team
+        from aimpg.gitkept import GitError, repo_root
+
+        repo = repo_root(str(args.repo.resolve()))
+        if repo is None:
+            print(f"{args.repo} is not a git repo.")
+            return 1
+        try:
+            written, _ = team.write_notes(repo, task_energy(attribution.tasks))
+            print(f"Wrote {written} notes on your AI-assisted commits in {repo} ({team.FULL_REF}; metadata only).")
+            if args.action == "push":
+                print(team.push(repo, args.remote) + ". Your team's GitHub Action can now include them.")
+        except GitError as exc:
+            print(f"notes: {exc}")
+            return 1
+        return 0
 
     if args.command == "sci":
         from aimpg import sci

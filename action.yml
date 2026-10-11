@@ -1,0 +1,68 @@
+name: aimpg
+description: AI cost and energy of pull requests and of your team (cost per working change), from aimpg git notes
+author: Kumar Ganduri
+branding:
+  icon: zap
+  color: green
+inputs:
+  mode:
+    description: "pr: AI cost of this pull request · rollup: team cost per working change and waste ratio"
+    default: pr
+  comment:
+    description: "pr mode: also post or update a comment on the pull request (needs permissions: pull-requests: write)"
+    default: "false"
+  days:
+    description: "rollup mode: period in days"
+    default: "90"
+  min-group:
+    description: "rollup mode: people who must share notes before team numbers show"
+    default: "5"
+  path:
+    description: "repo folder (checked out with fetch-depth: 0)"
+    default: "."
+outputs:
+  markdown-file:
+    description: path of the generated markdown
+    value: ${{ steps.run.outputs.file }}
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v6
+    - name: fetch aimpg notes
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: git fetch --quiet origin '+refs/notes/aimpg:refs/notes/aimpg' || echo "No aimpg notes on origin yet (developers add them with: aimpg notes push)"
+    - name: aimpg
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      env:
+        MODE: ${{ inputs.mode }}
+        DAYS: ${{ inputs.days }}
+        MIN_GROUP: ${{ inputs.min-group }}
+        BASE_REF: ${{ github.base_ref }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/aimpg.md"
+        case "$MODE" in
+          pr)
+            base="origin/${BASE_REF:-main}"
+            uvx --quiet --from "$ACTION_PATH" aimpg team pr --repo . --base "$base" > "$out" ;;
+          rollup)
+            uvx --quiet --from "$ACTION_PATH" aimpg team rollup --repo . --days "$DAYS" --min-group "$MIN_GROUP" > "$out" ;;
+          *) echo "::error::mode must be pr or rollup"; exit 1 ;;
+        esac
+        cat "$out" >> "$GITHUB_STEP_SUMMARY"
+        echo "file=$out" >> "$GITHUB_OUTPUT"
+    - name: comment on the pull request
+      if: inputs.mode == 'pr' && inputs.comment == 'true' && github.event.pull_request.number
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+        FILE: ${{ steps.run.outputs.file }}
+      run: |
+        gh pr comment "$PR" --body-file "$FILE" --edit-last --create-if-none \
+          || echo "::warning::Couldn't comment (pull requests from forks get a read-only token); the summary above has the numbers."

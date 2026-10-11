@@ -32,3 +32,41 @@ jobs:
       - run: uv run --group dev pytest -q -rs tests/test_sandbox_required.py tests/test_replay_sandbox.py tests/test_replay_e2e.py
         env:
           AIMPG_REQUIRE_SANDBOX: "1"
+  action-smoke:
+    # The GitHub Action (action.yml) on a throwaway repo with aimpg notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: a repo with a remote, a feature branch and notes from five people
+        run: |
+          set -euo pipefail
+          git config --global init.defaultBranch main
+          git init -q --bare /tmp/origin.git
+          git clone -q /tmp/origin.git /tmp/demo && cd /tmp/demo
+          git config user.email ci@x && git config user.name ci
+          for i in 1 2 3 4 5; do
+            echo $i > f$i && git add f$i
+            GIT_AUTHOR_DATE="@$(( $(date +%s) - (40 - i) * 86400 )) +0000" GIT_COMMITTER_DATE="@$(( $(date +%s) - (40 - i) * 86400 )) +0000" \
+              git -c user.email=p$i@x commit -q -m "feat: f$i"
+            git notes --ref=aimpg add -m "{\"aimpg_note\": 1, \"usd\": $i.0, \"wh\": [10, 100], \"requests\": 3, \"tier\": \"exact\"}" HEAD
+          done
+          git push -q origin main refs/notes/aimpg
+          git checkout -q -b feature && echo x > x && git add x && git commit -q -m "feat: x"
+          git notes --ref=aimpg add -m '{"aimpg_note": 1, "usd": 4.1, "wh": [200, 1900], "requests": 9, "tier": "exact"}' HEAD
+          git push -q origin refs/notes/aimpg  # as aimpg notes push would
+      - id: pr
+        uses: ./
+        with:
+          mode: pr
+          path: /tmp/demo
+      - id: rollup
+        uses: ./
+        with:
+          mode: rollup
+          path: /tmp/demo
+      - name: check the outputs
+        run: |
+          grep -q 'AI cost of this pull request' "${{ steps.pr.outputs.markdown-file }}"
+          grep -q 'Cost per working change' "${{ steps.rollup.outputs.markdown-file }}"
+          grep -q '\$15.00' "${{ steps.rollup.outputs.markdown-file }}"
+          cat "${{ steps.rollup.outputs.markdown-file }}"
