@@ -79,6 +79,6 @@ Everything else is reported as "not shown", with its interval.
   - **macOS cache file:** the sandbox allows the xcrun cache file macOS's git and clang need.
   - **Early give-up:** a repo whose first 5 candidates all fail to install is given up early.
   - **Localhost:** sandboxed code may use localhost networking, because test plugins and tests start local servers (litestar's pytest-rerunfailures binds a socket; axios runs local HTTP servers). Without this, agents couldn't run those tests either. The internet stays blocked.
-  - **Git-derived versions:** build tools that read the version from git history get a placeholder (`SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0`), because the workspace is a history-free export. pyinfra needs this; it's the same for every setup.
+  - **Git-derived versions:** build tools that read the version from git history get a placeholder (`SETUPTOOLS_SCM_PRETEND_VERSION` and `UV_DYNAMIC_VERSIONING_BYPASS`, both `0.0.0`), because the workspace is a history-free export. pyinfra needs this; it's the same for every setup.
   - **Selection restart:** the commit selection was restarted from scratch after these changes.
 - **2026-10-11, repos:** pydantic now builds its Rust core from source inside the repo, so its commits can't be installed offline. By the replacement rule it is replaced by the first reserve, litestar.

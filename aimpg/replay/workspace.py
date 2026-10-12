@@ -137,6 +137,7 @@ def _tool_env(work: Path) -> dict[str, str]:
         # The workspace is a history-free export (no .git), so build backends that read the version
         # from git (setuptools-scm, hatch-vcs: pyinfra) fail; give them a placeholder, the same for every setup
         SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0",
+        UV_DYNAMIC_VERSIONING_BYPASS="0.0.0",  # uv-dynamic-versioning (pyinfra)
     )
     return env
 
