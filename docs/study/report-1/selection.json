@@ -1,0 +1,51 @@
+{
+ "repos": [
+  {
+   "path": "/Users/kumarganduri/aimpg-study/litestar",
+   "url": "https://github.com/litestar-org/litestar",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/starlette",
+   "url": "https://github.com/Kludex/starlette",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/click",
+   "url": "https://github.com/pallets/click",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/pyinfra",
+   "url": "https://github.com/pyinfra-dev/pyinfra",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/axios",
+   "url": "https://github.com/axios/axios",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/lint-staged",
+   "url": "https://github.com/lint-staged/lint-staged",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/recharts",
+   "url": "https://github.com/recharts/recharts",
+   "qualifying": 14
+  },
+  {
+   "path": "/Users/kumarganduri/aimpg-study/homebridge",
+   "url": "https://github.com/homebridge/homebridge",
+   "qualifying": 14
+  }
+ ],
+ "replaced": [
+  {
+   "repo": "https://github.com/pydantic/pydantic",
+   "qualifying": 0,
+   "replaced_by": "https://github.com/litestar-org/litestar"
+  }
+ ]
+}
