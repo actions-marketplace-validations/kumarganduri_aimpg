@@ -134,6 +134,9 @@ def _tool_env(work: Path) -> dict[str, str]:
         npm_config_update_notifier="false",
         npm_config_fund="false",
         npm_config_audit="false",
+        # The workspace is a history-free export (no .git), so build backends that read the version
+        # from git (setuptools-scm, hatch-vcs: pyinfra) fail; give them a placeholder, the same for every setup
+        SETUPTOOLS_SCM_PRETEND_VERSION="0.0.0",
     )
     return env
 
