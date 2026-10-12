@@ -157,6 +157,11 @@ def write_stubs(hint: Hint, work, kind: str) -> None:
     """Create every hinted name with an empty value: tests must still FAIL on this."""
     for path, names in hint.names.items():
         target = work / path
+        if target.is_dir():  # `from "./src"` imports the folder's index file
+            index = [target / f"index{ext}" for ext in (".ts", ".tsx", ".mts", ".js", ".mjs", ".py")]
+            target = next((p for p in index if p.is_file()), None) or (target / "__init__.py" if kind == "python" else None)
+            if target is None:
+                continue
         target.parent.mkdir(parents=True, exist_ok=True)
         existing = target.read_text() if target.exists() else ""
         if kind == "js":

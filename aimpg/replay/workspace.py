@@ -342,18 +342,21 @@ def overlay_commit_tree(commit: Commit, work: Path) -> None:
                         os.symlink(m.linkname, link)
 
 
-def test_argv(commit: Commit) -> list[str]:
+def test_argv(commit: Commit, work: Path | None = None) -> list[str]:
+    """Run only the commit's test files, with coverage thresholds off: a repo that demands 100%
+    coverage (lint-staged) fails any subset run even when every test passes."""
     files = [f for f in commit.test_files if f.endswith((".py", ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs", ".mts", ".cts"))]
     if commit.runner == "pytest":
-        return [".venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *files]
+        has_cov = work is not None and any((work / ".venv").glob("lib/python*/site-packages/pytest_cov"))
+        return [".venv/bin/python", "-m", "pytest", "-q", "-p", "no:cacheprovider", *(["--no-cov"] if has_cov else []), *files]
     if commit.runner == "vitest":
-        return ["node_modules/.bin/vitest", "run", *files]
-    return ["node_modules/.bin/jest", "--ci", *files]
+        return ["node_modules/.bin/vitest", "run", "--coverage.enabled=false", *files]
+    return ["node_modules/.bin/jest", "--ci", "--coverage=false", *files]
 
 
 def judge(commit: Commit, layout: Layout, work: Path, name: str) -> tuple[bool, str]:
     """Phase C: run only the commit's test files, no network. (passed, tail of output)."""
-    result = _sandboxed(layout, name, work, test_argv(commit), proxy=None, timeout=JUDGE_TIMEOUT, extra_env={"CI": "1"})
+    result = _sandboxed(layout, name, work, test_argv(commit, work), proxy=None, timeout=JUDGE_TIMEOUT, extra_env={"CI": "1"})
     tail = (result.stdout + result.stderr)[-600:]
     return (not result.timed_out and result.returncode == 0), tail
 
