@@ -32,6 +32,7 @@ import os
 import time
 from pathlib import Path
 
+from aimpg.gitkept import GitError
 from aimpg.replay import chain, select, study
 from aimpg.replay import run as runner
 from aimpg.replay.cli import _select, _state, secure_root
@@ -97,9 +98,18 @@ def _select_all(plan: dict) -> int:
         if not Path(r["path"]).is_dir():
             print(f"  not cloned: git clone --filter=blob:none --single-branch {r.get('url')} {r['path']}")
             n = 0
+        elif (_state(Path(r["path"])) / "selected.manifest.json").exists():
+            n = _qualified(r["path"])  # finished in an earlier run (the manifest is written last)
+            print(f"  already selected: {n} qualifying (delete {_state(Path(r['path']))} to redo)")
         else:
-            _select(Path(r["path"]), argparse.Namespace(days=365, cutoff=plan["cutoff"], max=plan["commits_per_repo"] * 2,
-                                                        any_author=True))
+            for attempt in range(3):  # blobless clones fetch file contents on demand; GitHub sometimes drops one
+                try:
+                    _select(Path(r["path"]), argparse.Namespace(days=365, cutoff=plan["cutoff"],
+                                                                max=plan["commits_per_repo"] * 2, any_author=True))
+                    break
+                except GitError as exc:
+                    print(f"  git failed ({str(exc)[:120]}); retrying in 30 s" if attempt < 2 else f"  git failed 3 times: {exc}")
+                    time.sleep(30)
             n = _qualified(r["path"])
         if n >= MIN_QUALIFYING:
             summary["repos"].append({"path": r["path"], "url": r.get("url"), "qualifying": n})
