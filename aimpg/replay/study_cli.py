@@ -160,7 +160,12 @@ def _run(plan: dict, args) -> int:
     cap = (min(plan["cap_usd"], 15.0) if args.pilot else plan["cap_usd"])
     print(f"Study {plan['name']}{' (PILOT)' if args.pilot else ''}: {len(repos)} repos, {n_runs} agent runs, "
           f"setups {', '.join(s.name for s in setups)}, {chains} fresh-session pairs per repo, task mode {plan.get('task_mode', 'hint')}")
-    print(f"Total cap ${cap:.2f}; Claude Code runs stop at ${plan.get('per_run_budget_usd', 2.0):.2f} each.")
+    out_dir = _out(plan) / ("pilot" if args.pilot else "runs")
+    done_runs = sum(len(runner.completed(out_dir / f"{Path(r['path']).name}.jsonl")) for r in repos) if out_dir.exists() else 0
+    if done_runs:
+        print(f"{done_runs} of those runs are already done (kept); only the rest will run.")
+    print(f"Total cap ${cap:.2f}, counted at the published API prices (each run reserves "
+          f"${plan.get('per_run_budget_usd', 2.0):.2f} until its real cost is known).")
     if not args.yes and input("Spend up to that on your API keys? [y/N] ").strip().lower() != "y":
         print("Stopped. Nothing was spent.")
         return 1
