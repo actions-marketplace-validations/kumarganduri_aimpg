@@ -85,6 +85,12 @@ Everything else is reported as "not shown", with its interval.
   - **Selection restart:** the commit selection was restarted from scratch after these changes.
 - **2026-10-11, repos:** pydantic now builds its Rust core from source inside the repo, so its commits can't be installed offline. By the replacement rule it is replaced by the first reserve, litestar.
 
+- **2026-10-13, after the pilot ($1.81, not part of the results):**
+  - **Pricing from tokens:** every run is priced from its own tokens at the published price tables. Claude Code reported Haiku 5.5 runs at about 27× the published prices ($0.68 vs $0.025, all prompts under the 100k tier) while matching them exactly for Sonnet. Claude Code's own figure is kept in each record.
+  - **Spending cap:** Claude Code's per-run spending cap is set to $50, so it can't stop Haiku runs early at its inflated prices. The study's own cap, counted at the published prices, still applies.
+  - **Resumed sessions:** a resumed session's token check subtracts the earlier step, because Claude Code's totals include it.
+  - **Headline rule:** the rule as coded allowed a headline from fewer than 6 repos. It now requires at least 6 repos with the direction holding in 5, as written above.
+
 ## Selection result (free pre-check finished 2026-10-13)
 
 In the study: litestar (replacing pydantic), starlette, click, pyinfra, axios, lint-staged, recharts and homebridge. The reserves strawberry and uvicorn are not used. For each repo, `selection/<repo>.manifest.json` lists every candidate checked, in order, and which qualified. The study uses each repo's **first 7** qualifying commits:

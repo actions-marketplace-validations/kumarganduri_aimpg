@@ -99,3 +99,9 @@ def test_primary_metric_decides_the_headline():
     holm([on_tokens]), holm([on_cost])
     assert on_tokens.headline and on_tokens.cheaper_in_repos == 6
     assert not on_cost.headline
+
+
+def test_fewer_than_six_repos_never_make_a_headline():
+    c = compare(study(repos=1, chal_cost=0.3), "base", "chal")
+    holm([c])
+    assert c.p_holm is not None and c.p_holm < 0.05 and not c.headline

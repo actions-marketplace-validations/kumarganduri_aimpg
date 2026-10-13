@@ -167,7 +167,8 @@ def _run(plan: dict, args) -> int:
     out = _out(plan) / ("pilot" if args.pilot else "runs")
     out.mkdir(exist_ok=True)
     cfg = runner.Config(model="claude-sonnet-5-5", per_run_budget_usd=plan.get("per_run_budget_usd", 2.0), total_cap_usd=cap,
-                        api_key=keys.get("ANTHROPIC_API_KEY", ""), task_mode=plan.get("task_mode", "hint"), keys=keys)
+                        api_key=keys.get("ANTHROPIC_API_KEY", ""), task_mode=plan.get("task_mode", "hint"), keys=keys,
+                        agent_budget_flag_usd=plan.get("agent_budget_flag_usd", 50.0))
     layout, spent = Layout(secure_root()), 0.0
     for repo, commits in selected.items():
         results = out / f"{Path(repo).name}.jsonl"

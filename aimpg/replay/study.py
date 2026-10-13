@@ -187,7 +187,7 @@ def holm(comparisons: list[Comparison], *, alpha: float = 0.05) -> None:
         running = max(running, min(1.0, (m - i) * c.p_per_solved))
         c.p_holm = running
     for c in comparisons:
-        need = min(5, c.repos) if c.repos >= 6 else c.repos
+        need = 5 if c.repos >= 6 else c.repos + 1  # pre-registered: >= 6 repos, direction holding in >= 5 (pilot caught 1 repo passing)
         ratio = {"per_solved": c.ratio_per_solved, "tokens": c.ratio_tokens, "per_attempt": c.ratio_per_attempt}[c.primary]
         direction = c.cheaper_in_repos if (ratio or 1) < 1 else c.repos - c.cheaper_in_repos
         c.headline = bool(c.p_holm is not None and c.p_holm < alpha and c.repos and direction >= need)
