@@ -55,6 +55,9 @@ class Config:
     parallel: int = 3
     timeout: float = AGENT_TIMEOUT
     task_mode: str = "hint"  # "hint": message + interface hint, tests hidden | "tests": tests shown
+    # Claude Code's own --max-budget-usd uses Claude Code's price list, which the pilot found ~27x too
+    # high for Haiku 5.5; a cap at the agent's price would stop Haiku runs early. 0 = per_run_budget_usd.
+    agent_budget_flag_usd: float = 0.0
     keys: dict[str, str] = field(default_factory=dict)  # other agents' keys by env var (from the user's shell)
 
     def key_for(self, env_name: str) -> str:
@@ -141,7 +144,15 @@ def _agent_env(work: Path, cfg: Path, proxy: AllowlistProxy, api_key: str, key_e
     return env
 
 
-def _check_tokens(requests, result: dict) -> tuple[str, bool]:
+def _prior_usage(cfgdir: Path) -> dict | None:
+    """modelUsage of the step before a resumed one (its result.json is kept as prior-result.json)."""
+    try:
+        return json.loads((cfgdir.parent / "prior-result.json").read_text()).get("modelUsage")
+    except (OSError, ValueError):
+        return None
+
+
+def _check_tokens(requests, result: dict, offset: dict | None = None) -> tuple[str, bool]:
     """(tokens_check, is_harness_error). Is the transcript this run's, and complete?
 
     Learned from the first paid calibration runs: Claude Code's `usage` field
@@ -157,6 +168,8 @@ def _check_tokens(requests, result: dict) -> tuple[str, bool]:
     if isinstance(totals, dict) and totals:
         keys = ("inputTokens", "cacheCreationInputTokens", "cacheReadInputTokens", "outputTokens", "thinkingTokens")
         theirs = sum(int(m.get(k) or 0) for m in totals.values() if isinstance(m, dict) for k in keys)
+        if offset:  # a resumed session's totals include the earlier step (found in the pilot)
+            theirs -= sum(int(m.get(k) or 0) for m in offset.values() if isinstance(m, dict) for k in keys)
         if theirs == 0:
             return "unverified (modelUsage is zero)", False
         if abs(ours - theirs) / theirs > TOKEN_TOLERANCE:
@@ -239,7 +252,8 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
             proxy_socket=proxy.socket_path,
         )
         res = sandbox.run(
-            [*setup.argv(task or task_text(commit, cfg.task_mode), cfg.model, cfg.per_run_budget_usd, cfgdir), *extra_args],
+            [*setup.argv(task or task_text(commit, cfg.task_mode), cfg.model, cfg.agent_budget_flag_usd or cfg.per_run_budget_usd,
+                         cfgdir), *extra_args],
             profile=profile,
             profile_path=layout.profile_path(run_id),
             env=_agent_env(work, cfgdir, proxy, key, setup.key_env),
@@ -263,9 +277,13 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
     if since is not None:  # only this step's requests (a resumed session's transcript holds the earlier step too)
         parsed.requests = [r for r in parsed.requests if r.ts >= since]
     usages = [(r.usage.fresh_in, r.usage.cache_write, r.usage.cache_read, r.usage.output) for r in parsed.requests]
-    cost = float(result.get("total_cost_usd") or 0.0)
-    if since is not None:
-        cost = sum(usage_cost(r.usage, r.model) or 0.0 for r in parsed.requests)
+    # Every run is priced from its own tokens at the published price table, the same way for every
+    # setup. Claude Code's own total is kept for the record: the pilot found it ~27x too high for
+    # Haiku 5.5 while matching the table exactly for Sonnet.
+    reported = float(result.get("total_cost_usd") or 0.0)
+    priced = [usage_cost(r.usage, r.model) for r in parsed.requests]
+    cost = sum(p for p in priced if p is not None) if parsed.requests and all(p is not None for p in priced) else reported
+    measured["agent_reported_cost_usd"] = round(reported, 6)
     note = f"blocked: {blocked[:5]}" if blocked else ""
     if result.get("escapes"):
         note += f" escapes: {result['escapes']}"
@@ -274,7 +292,7 @@ def _run_agent(commit: Commit, setup: Setup, layout: Layout, cfg: Config, work: 
 
     if res.timed_out:
         return record("timeout", usages=usages, cost=cost, check="n/a (timed out)", note=note)
-    check, harness_error = _check_tokens(parsed.requests, result)
+    check, harness_error = _check_tokens(parsed.requests, result, offset=_prior_usage(cfgdir) if since is not None else None)
     subtype = str(result.get("subtype", ""))
     if "budget" in subtype:
         return record("budget_hit", usages=usages, cost=cost, check=check, note=note)

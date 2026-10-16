@@ -84,3 +84,25 @@ Everything else is reported as "not shown", with its interval.
   - **Folder imports:** placeholder stubs handle imports from a folder's index file (recharts).
   - **Selection restart:** the commit selection was restarted from scratch after these changes.
 - **2026-10-11, repos:** pydantic now builds its Rust core from source inside the repo, so its commits can't be installed offline. By the replacement rule it is replaced by the first reserve, litestar.
+
+- **2026-10-13, after the pilot ($1.81, not part of the results):**
+  - **Pricing from tokens:** every run is priced from its own tokens at the published price tables. Claude Code reported Haiku 5.5 runs at about 27× the published prices ($0.68 vs $0.025, all prompts under the 100k tier) while matching them exactly for Sonnet. Claude Code's own figure is kept in each record.
+  - **Spending cap:** Claude Code's per-run spending cap is set to $50, so it can't stop Haiku runs early at its inflated prices. The study's own cap, counted at the published prices, still applies.
+  - **Resumed sessions:** a resumed session's token check subtracts the earlier step, because Claude Code's totals include it.
+  - **Headline rule:** the rule as coded allowed a headline from fewer than 6 repos. It now requires at least 6 repos with the direction holding in 5, as written above.
+
+## Selection result (free pre-check finished 2026-10-13)
+
+In the study: litestar (replacing pydantic), starlette, click, pyinfra, axios, lint-staged, recharts and homebridge. The reserves strawberry and uvicorn are not used. For each repo, `selection/<repo>.manifest.json` lists every candidate checked, in order, and which qualified. The study uses each repo's **first 7** qualifying commits:
+
+| repo | candidates | qualifying | candidate-list SHA-256 | first 7 (used) |
+|---|---|---|---|---|
+| axios | 34 checked | 14 | `5d57cc9ac8c8` | 02c2c4f8, 3d253b4f, a85da291, e435384f, 3ebc7624, ff60b432, a93b1c90 |
+| click | 17 checked | 14 | `e2f906138961` | 93ba0075, 9f9b149e, 07c909f2, 3495fba1, 7a0a3447, 051725fa, fbdd4340 |
+| homebridge | 14 checked | 14 | `088cf27e1aa7` | c58eff4c, a7a1d487, dc0ef09d, 47382933, d934a479, adc95e2e, 8f00f8e6 |
+| lint-staged | 26 checked | 14 | `69e2091a4edf` | 86600d3b, 113cc549, bd4dcbf0, d43432b0, 9b98b7f0, 26112a19, 37e8e1ad |
+| litestar | 16 checked | 14 | `b724dae99415` | bd70de14, 4a433223, 6d07038f, 2453f456, 143fae39, fe47b846, 19a0ae48 |
+| pydantic | 85 checked | 0 | `bac35ca3334b` |  |
+| pyinfra | 16 checked | 14 | `6cbe70ca1d88` | fb6b4731, 556c0beb, 676799ba, 36a02ddc, 92650d3e, 61052231, 2b1d16c6 |
+| recharts | 20 checked | 14 | `4d5e2e5d3175` | 6972c412, 52a2a896, 2fa048ec, 82d2bec9, f2786e83, 553e77b3, f2c3ecb9 |
+| starlette | 14 checked | 14 | `8429f3a58da1` | 99b7cc62, f1dc9b63, b07b8c61, d438d397, 78ae82ca, 9c500db1, 38f8999a |

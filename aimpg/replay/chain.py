@@ -56,6 +56,8 @@ def run_chain(c1: Commit, c2: Commit, repeat: int, layout: Layout, cfg: Config, 
     if not session:
         first.outcome, first.passed, first.note = "harness_error", False, "task 1 left no session id to resume"
         return [first]
+    # keep task 1's totals: the resumed session's own totals include them
+    (run_dir / "prior-result.json").write_text((run_dir / "result.json").read_text())
     cont = run_one(c2, CONTINUE, repeat, layout, cfg, attempt=attempt, solution=solutions.get(c2.sha),
                    run_id=f"{tag}-chain-continue-r{repeat}-a{attempt}", extra_args=("--resume", session),
                    resume_dir=run_dir, price_from_tokens=True)
