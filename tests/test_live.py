@@ -68,7 +68,7 @@ def test_status_line_colors_and_hints():
     line = status_line({"rate_limits": {"five_hour": {"used_percentage": 63}}}, s, usual=1.0)
     assert line.startswith("⚡ ") and "\033[31m" in line  # > 3x usual: red
     assert "usual $1.00" in line and "80% from before your last commit" in line and "5h 63%" in line
-    assert "next task? /clear" in line and "per request" not in line  # no promised saving
+    assert "/clear" not in line  # Report No. 1: a fresh session cost more, so no /clear advice
     assert "\033[" not in status_line({}, SessionState(), usual=None)
 
 
@@ -86,7 +86,7 @@ def test_hook_announces_a_commit_once(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     live.run_post_commit_hook()
     msg = json.loads(capsys.readouterr().out)["systemMessage"]
-    assert msg.startswith("aimpg: that commit cost $") and "over 2 AI requests" in msg and "/clear" in msg
+    assert msg.startswith("aimpg: that commit cost $") and "over 2 AI requests" in msg and "/clear" not in msg
     monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     live.run_post_commit_hook()
     assert capsys.readouterr().out == ""  # nothing new: no second note

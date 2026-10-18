@@ -48,10 +48,7 @@ def numbers(parsed, attribution, since: float, now: float, judged=None) -> CardN
     typical = statistics.median(e.usd for e in pool) if pool else None
     found = coach_tips(in_window, attribution)
     tip = None
-    fresh = next((t for t in found if t.title.startswith("Start a fresh session")), None)
-    pct = re.match(r"\d+%", fresh.measured) if fresh else None
-    if pct:
-        tip = f"{pct.group(0)} of my agents' tokens re-read conversation from before my last commit"
+    tip = found[0].measured if found else None
     cpw = judged.cost_per_durable() if judged is not None and judged.judged else None
     return CardNumbers(round((now - since) / 86400), usd, len(energies), (wh.low / 1000, wh.high / 1000), typical,
                        "per kept commit" if pool is kept else "per commit", tip, cpw)

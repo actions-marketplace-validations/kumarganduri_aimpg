@@ -19,11 +19,10 @@ YOUR AI CODING
   A typical kept commit:  20.0 Wh – 179.3 Wh · $1.63
 
 WHAT WOULD HAVE SAVED THE MOST (measured on your logs; upper bounds that overlap)
-  1. Start a fresh session after each commit: up to 41%–46% less energy, up to $457
-     57% of the tokens your agents processed were conversation carried over from before your last commit.
-     A fresh session has to rebuild some context, which isn't counted here, so the real saving is smaller.
-     → After committing, start a new session (or /clear) for the next task, and give it a one-line summary if needed.
-  2. Use a mid-size model for routine work: up to 17% less energy, $408
+  56% of your agents' tokens were conversation carried over from before your last commit;
+  re-reading that cached context is cheap: in aimpg's Report No. 1, starting a fresh session for the next task cost 13% more, not less.
+
+  1. Use a mid-size model for routine work: up to 17% less energy, $408
      95% of your AI energy ran on the largest models (Opus/Fable class).
      → Try Sonnet for routine fixes; check it's good enough on your own commits with `aimpg replay` (model picker).
 
@@ -40,9 +39,9 @@ WORKING CHANGES (commits that shipped and lasted 30 days)
 uv tool install aimpg && aimpg live install     # shows the change, asks y/N, keeps a backup
 ```
 ```
-⚡ task $1.96 · usual $2.05 · ctx 160k (92% from before your last commit) · /clear ≈ -92% per request · 5h 63%
+⚡ task $1.96 · usual $2.05 · ctx 160k (92% from before your last commit) · 5h 63%
 ```
-After the agent commits, one line for you only (never sent to the model): *"that commit cost $2.40 over 31 AI requests. 92% of the context is from earlier work: /clear before the next task saves ~92% per request."* Undo with `aimpg live uninstall`.
+After the agent commits, one line for you only (never sent to the model): *"that commit cost $2.40 over 31 AI requests."* Undo with `aimpg live uninstall`.
 
 ### Using Cursor?
 Cursor keeps its token counts online. Download them at **cursor.com/dashboard → Usage → Export CSV**, then:

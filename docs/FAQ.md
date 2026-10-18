@@ -21,8 +21,8 @@ Studies only use commits made after every tested model's training cutoff (Claude
 **Why not just look at my bill?**
 A bill tells you the total. aimpg tells you what each change that shipped and lasted cost, which habits drove it, and whether a cheaper model or a token-saver actually saves money on your code, judged by your tests.
 
-**"Just /clear more." Do I need a tool for that?**
-Maybe not. aimpg tells you how much of your agents' tokens were conversation carried over from before your last commit (57% for the author). It doesn't claim clearing saves all of that: a fresh session has to rebuild some context. Report No. 1 includes an experiment that measures the real difference on real commits.
+**Should I start a fresh session (/clear) after each commit?**
+Probably not to save money. aimpg shows how much of your agents' tokens were conversation carried over from before your last commit (56% for the author). But re-reading that context comes from the cache, which is cheap. In Report No. 1 (8 repos, 16 task pairs × 3 repeats), doing the next task in a fresh session with a one-line summary cost **13% more** than continuing, in every repo, because the new session has to write its context into the cache again. Clear when old context confuses the agent, not to save money.
 
 **Is it safe to run?**
 `report`, `live`, `sci` and `defaults` only read local logs and git. Replays run agents in a sandbox: Seatbelt on macOS, bubblewrap on Linux. The sandbox hides your home folder, temp folders and other users' files, and only reaches the model's API through an allowlisting proxy. A pre-launch security review found and fixed three high-severity issues (in 0.6.1), each with a regression test. `--rerun` of someone else's record shows every command, hook and prompt it would run, and asks first. One limit: tests start local servers, so the sandbox allows localhost. On macOS that means services already listening on your machine's localhost are reachable from inside; on Linux each run gets its own private localhost.

@@ -47,3 +47,10 @@ def test_tips_are_ranked_by_money_saved():
     requests, attribution = session_with_commit()
     found = tips(requests, attribution)
     assert [t.saving_usd for t in found] == sorted((t.saving_usd for t in found), reverse=True)
+
+
+def test_fresh_session_is_no_longer_offered_as_a_saving():
+    # Report No. 1 measured a fresh session costing 13% more for the next task
+    from aimpg.coach import STUDY_FRESH
+
+    assert "13% more" in STUDY_FRESH

@@ -129,6 +129,13 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
     add("")
     if in_window:
         lines.extend(summary(in_window, energies))
+        from aimpg.coach import STUDY_FRESH, carried_share
+
+        share = carried_share(in_window, attribution)
+        if share:
+            add("")
+            add(f"  {share:.0%} of your agents' tokens were conversation carried over from before your last commit;")
+            add(f"  {STUDY_FRESH}.")
         found = coach_tips(in_window, attribution)
         if found:
             add("")

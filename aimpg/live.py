@@ -7,7 +7,6 @@ The monthly receipt is read once; behavior changes at the moment of decision.
 
     after the agent runs `git commit` (PostToolUse hook, shown to you only):
       aimpg: that commit cost $2.40 over 31 requests (≈ 2 phone charges).
-             69% of the context is from before it: /clear before the next task saves ~69% per request.
 
 Speed matters (this runs constantly), so:
   * the session transcript is read incrementally: only bytes added since the
@@ -35,7 +34,6 @@ from aimpg.model import Usage
 
 LIVE_DIR = Path.home() / ".aimpg" / "live"
 BASELINE_MAX_AGE = 24 * 3600
-CLEAR_HINT_SHARE = 0.4  # suggest /clear when this much of the context predates the last commit
 
 
 @dataclass
@@ -259,8 +257,6 @@ def status_line(data: dict, state: SessionState, usual: float | None) -> str:
             parts.append(f"ctx {_k(ctx)} ({share:.0%} from before your last commit)")
         else:
             parts.append(f"ctx {_k(ctx)}")
-        if share >= CLEAR_HINT_SHARE and len(state.task) <= 3:
-            parts.append("next task? /clear")
     five = ((data.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
     if isinstance(five, (int, float)):
         parts.append(f"5h {five:.0f}%")
@@ -268,12 +264,7 @@ def status_line(data: dict, state: SessionState, usual: float | None) -> str:
 
 
 def commit_note(done: dict) -> str:
-    msg = f"aimpg: that commit cost {_usd(done['cost'])} over {done['requests']} AI requests."
-    share = done.get("stale_share", 0.0)
-    if share >= CLEAR_HINT_SHARE:
-        msg += (f" {share:.0%} of the context is from earlier work. If the next task doesn't need it, /clear"
-                " (with a one-line summary) stops re-reading it on every request.")
-    return msg
+    return f"aimpg: that commit cost {_usd(done['cost'])} over {done['requests']} AI requests."
 
 
 def _read_stdin_json() -> dict:
