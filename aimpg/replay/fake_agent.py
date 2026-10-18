@@ -109,6 +109,14 @@ def other_agent(mode: str, args: list[str]) -> int:
         if mode == "nocredit":
             print('{"type":"error","message":"You exceeded your current quota (insufficient_quota)"}')
             return 1
+        if mode == "quota-in-log":  # what the real Codex did in the main run: the error only in its session log
+            folder = cfg / "sessions" / "x"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "rollout-q.jsonl").write_text(json.dumps({"type": "event_msg", "payload": {
+                "type": "task_complete", "error": {"message": "Quota exceeded. Check your plan and billing details.",
+                                                   "codex_error_info": "usage_limit_exceeded"}}}) + "\n")
+            print("Reading additional input from stdin...", file=sys.stderr)
+            return 1
         model = args[args.index("-m") + 1] if "-m" in args else "gpt-fake"
         codex_rollout(cfg, cwd, model, 3)
         # its output can quote error text from the code it writes: never an account error

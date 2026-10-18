@@ -302,3 +302,9 @@ def test_fresh_session_chain_pairs_continue_and_fresh_on_task_two(prepared, monk
     assert cont.commit == fresh.commit == commit.sha and (cont.setup, fresh.setup) == ("chain-continue", "chain-fresh")
     assert cont.extra["prev_outcome"] == "passed" and len(cont.usages) == 3  # task 2's requests only
     assert cont.cost_usd > 0 and fresh.cost_usd > 0  # priced from tokens at list prices
+
+
+def test_codex_quota_recorded_only_in_its_session_log_is_an_account_error(prepared):
+    layout, commit, _, _ = prepared
+    rec = run_one(commit, fake("quota-in-log", agent="codex"), 0, layout, cfg())
+    assert rec.outcome == "account_error" and "Quota exceeded" in rec.note

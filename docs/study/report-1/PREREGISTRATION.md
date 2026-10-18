@@ -115,3 +115,10 @@ In the study: litestar (replacing pydantic), starlette, click, pyinfra, axios, l
   - codex-cli 0.159.2;
   - rtk 0.51.0.
 - **Nothing above changes from here.** Any deviation during the run (for example a harness error that needs a fix) is reported as a deviation, with the runs before and after it marked.
+
+## Deviations during the main run
+- **2026-10-18, Anthropic credit ran out** after 23 runs. The run stopped itself (account error) and resumed after a top-up. 3 interrupted runs were redone, as pre-registered.
+- **2026-10-18, OpenAI quota ran out during pyinfra.** Codex records this error only in its session log, so aimpg misread 5 Codex runs as harness errors. Under the "harness error twice" rule, that wrongly excluded 2 pyinfra commits (676799ba, 36a02ddc) for every setup.
+  - **Fix:** aimpg now reads Codex's session log, and a quota error counts as an account error that stops the run.
+  - **Repair:** the 5 quota-caused Codex records and the 2 exclusions were removed (the original file is kept as `pyinfra.jsonl.before-quota-repair`). Those runs are redone after the top-up.
+  - **Results:** no completed result of any setup was changed.
