@@ -239,7 +239,7 @@ Fresh-session pairs: task 1 in a session, then task 2 either continued or starte
 <li>imports from a folder;</li>
 <li>dependencies pinned to GitHub commits.</li>
 </ul></li>
-<li><b>The $1.95 pilot found that Claude Code shows Haiku 5.5 runs at about 27× the published price.</b> Every run is priced from its tokens at the published prices.</li>
+<li><b>The $1.95 pilot found that Claude Code shows Haiku 5.5 runs at about 27× the published price.</b> Every run is priced from its tokens at the published prices. The author's Anthropic bill confirms those prices: billed at Claude Code's displayed rate, the 168 Haiku runs would have cost about $73 instead of $2.69, and the account balance shows no such charge. Claude Code's cost display for Haiku 5.5 (version 2.1.287) is wrong; the bill isn't.</li>
 <li><b>During the run, both accounts ran out of credit once.</b> Interrupted runs were redone. Codex's quota error was at first misread as aimpg's own failure, which wrongly excluded 2 commits; that was repaired before the analysis. The original file is published.</li>
 </ul>
 <p>All of these are dated in the pre-registration's change and deviation lists.</p>
