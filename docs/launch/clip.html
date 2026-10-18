@@ -1,0 +1,82 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,700;112,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:#0d1a1b;color:#e2ece8;font-family:"IBM Plex Sans",system-ui,sans-serif}
+.scene{position:absolute;inset:0;display:none;padding:64px 80px;box-sizing:border-box}
+.on{display:block}
+h1{font:800 64px/1.05 "Archivo",sans-serif;font-stretch:112%;margin:0;letter-spacing:-.01em}
+.eyebrow{font:600 20px/1 "IBM Plex Mono",monospace;letter-spacing:.14em;color:#f0ad3a;text-transform:uppercase}
+.term{background:#081314;border:1px solid #24393a;border-radius:14px;padding:26px 30px;font:500 24px/1.55 "IBM Plex Mono",monospace;white-space:pre;color:#d6e6e1;margin-top:28px;height:470px;box-sizing:border-box}
+.prompt{color:#93aaa3}.big{color:#fff;font-weight:600}.amber{color:#f0ad3a}.dim{color:#93aaa3}
+.cc{position:absolute;left:80px;right:80px;top:180px}
+.ccbox{background:#132426;border:1px solid #24393a;border-radius:14px;padding:28px 30px;font:22px/1.6 "IBM Plex Sans",sans-serif;color:#cfe0db;height:270px;box-sizing:border-box}
+.status{margin-top:18px;background:#081314;border-radius:10px;padding:16px 22px;font:600 26px/1.3 "IBM Plex Mono",monospace;color:#e2ece8}
+.row{display:flex;align-items:center;gap:28px;margin-top:30px}
+.label{width:360px;font:600 30px/1.2 "IBM Plex Sans",sans-serif}
+.label small{display:block;font:500 18px/1.3 "IBM Plex Sans";color:#93aaa3;margin-top:4px}
+.track{flex:1;position:relative;height:56px}
+.mid{position:absolute;left:50%;top:-6px;bottom:-6px;border-left:2px dashed #557069}
+.bar{position:absolute;top:8px;height:40px;border-radius:6px}
+.val{position:absolute;top:6px;font:800 34px/1.3 "Archivo";font-stretch:112%;white-space:nowrap}
+.foot{position:absolute;left:80px;bottom:44px;font:500 18px/1.3 "IBM Plex Sans";color:#93aaa3}
+.end h1{font-size:76px}.cmd{display:inline-block;margin-top:34px;background:#f0ad3a;color:#10292a;font:600 40px/1 "IBM Plex Mono",monospace;padding:22px 30px;border-radius:12px}
+.url{margin-top:30px;font:500 28px/1.3 "IBM Plex Mono",monospace;color:#cfe0db}
+</style></head><body>
+<div class="scene" id="s1"><div class="eyebrow">AI Coding MPG</div><h1 style="margin-top:28px">What does AI coding<br>really cost per change<br>that ships?</h1></div>
+<div class="scene" id="s2"><div class="eyebrow">Your receipt, from your own logs</div><div class="term" id="term"></div></div>
+<div class="scene" id="s3"><div class="eyebrow">Live, while you work</div>
+  <div class="cc"><div class="ccbox">› add retry with backoff to the uploader<br><span class="dim">● Reading src/upload.py · Editing 2 files · Running tests…</span></div>
+  <div class="status" id="status"></div></div></div>
+<div class="scene" id="s4"><div class="eyebrow">Report No. 1 · 8 repos · 56 commits · 984 runs</div>
+  <h1 style="font-size:40px;margin-top:18px">Cost per solved task, vs Claude Code on Sonnet 5.5</h1>
+  <div id="bars"></div>
+  <div class="foot">Pre-registered · judged by each project's own hidden tests · all raw data public</div></div>
+<div class="scene end" id="s5"><div class="eyebrow">Free and open source</div><h1 style="margin-top:24px">See yours.</h1>
+  <div class="cmd">uvx aimpg report</div><div class="url">github.com/kumarganduri/aimpg</div></div>
+<script>
+const RECEIPT = [
+ ["YOUR AI CODING · LAST 30 DAYS","amber"],
+ ["  Money    $2,038 at API list prices","big"],
+ ["  Output   526 commits made with AI help",""],
+ ["  A typical kept commit:  $1.73","big"],
+ ["",""],
+ ["  56% of tokens re-read earlier conversation","dim"],
+ ["  (cheap, cached: a fresh session cost 13% more)","dim"],
+ ["",""],
+ ["  1. Use a mid-size model for routine work: $547","amber"],
+];
+const FINDINGS = [
+ {label:"Haiku 5.5", sub:"solves 49% vs 51%", ratio:0.17, text:"6× cheaper", color:"#5cc493"},
+ {label:"Opus 5.5", sub:"solves 61% vs 51%", ratio:2.6, text:"2.6× more", color:"#f08a80"},
+ {label:"Fresh session", sub:"for the next task", ratio:1.13, text:"+13%", color:"#f0ad3a"},
+];
+function render(t){
+  const scenes=[[0,2.2,"s1"],[2.2,7.2,"s2"],[7.2,11.2,"s3"],[11.2,17.2,"s4"],[17.2,99,"s5"]];
+  for(const [a,b,id] of scenes) document.getElementById(id).classList.toggle("on", t>=a && t<b);
+  // receipt: type the command, then lines appear
+  const cmd="uvx aimpg report", tt=t-2.2;
+  const typed=cmd.slice(0, Math.max(0, Math.min(cmd.length, Math.floor(tt/0.06))));
+  let out=`<span class="prompt">$ </span>${typed}${tt<1.2?'<span class="amber">▌</span>':''}\n`;
+  const shown=Math.max(0, Math.floor((tt-1.3)/0.32));
+  RECEIPT.slice(0, shown).forEach(([l,c])=>{ out+=`<span class="${c}">${l}</span>\n`; });
+  document.getElementById("term").innerHTML=out;
+  // status line ticks up
+  const st=Math.max(0, t-7.4), task=Math.min(1.96, 0.12+st*0.55);
+  document.getElementById("status").innerHTML=`⚡ task $${task.toFixed(2)} · usual $2.05 · ctx ${Math.round(40+st*30)}k · 5h 63%`;
+  // findings bars grow from the 1× line (log scale)
+  const ft=t-11.6; let html="";
+  FINDINGS.forEach((f,i)=>{
+    const p=Math.max(0, Math.min(1, (ft-i*0.9)/0.8));
+    const pos=Math.log(f.ratio)/Math.log(8)*0.5*p, left=pos<0?50+pos*100:50, width=Math.abs(pos*100);
+    const vx=pos<0? (left-1) : (50+width+1);
+    html+=`<div class="row" style="opacity:${p>0?1:0.25}"><div class="label">${f.label}<small>${f.sub}</small></div><div class="track"><div class="mid"></div>
+      <div class="bar" style="left:${left}%;width:${width}%;background:${f.color}"></div>
+      <div class="val" style="${pos<0?`right:${100-vx}%`:`left:${vx}%`};color:${f.color};opacity:${p>0.95?1:0}">${f.text}</div></div></div>`;
+  });
+  document.getElementById("bars").innerHTML=html;
+}
+const t=parseFloat((location.hash.match(/t=([\d.]+)/)||[0,0])[1]);
+document.fonts.ready.then(()=>{ render(t); document.title="ready"; });
+render(t);
+</script></body></html>
