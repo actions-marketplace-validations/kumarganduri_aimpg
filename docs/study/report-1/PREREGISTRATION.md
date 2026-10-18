@@ -1,4 +1,4 @@
-# AI Coding MPG Report No. 1: pre-registration (DRAFT, frozen before the main run)
+# AI Coding MPG Report No. 1: pre-registration (FROZEN 2026-10-18)
 
 Written and committed **before any paid run** (git history shows the date). Nothing below changes after the first study run. Deviations, if any, are reported as deviations.
 
@@ -106,3 +106,19 @@ In the study: litestar (replacing pydantic), starlette, click, pyinfra, axios, l
 | pyinfra | 16 checked | 14 | `6cbe70ca1d88` | fb6b4731, 556c0beb, 676799ba, 36a02ddc, 92650d3e, 61052231, 2b1d16c6 |
 | recharts | 20 checked | 14 | `4d5e2e5d3175` | 6972c412, 52a2a896, 2fa048ec, 82d2bec9, f2786e83, 553e77b3, f2c3ecb9 |
 | starlette | 14 checked | 14 | `8429f3a58da1` | 99b7cc62, f1dc9b63, b07b8c61, d438d397, 78ae82ca, 9c500db1, 38f8999a |
+
+## Frozen 2026-10-18, before the main run
+- **RTK:** no reply by the stated deadline ([discussion #4511](https://github.com/rtk-ai/rtk/discussions/4511), 0 comments on 2026-10-18). RTK runs with the setup stated above. A later reply will be published next to the results.
+- **Versions at freeze:**
+  - aimpg commit `66d9702`;
+  - 2.1.287 (Claude Code);
+  - codex-cli 0.159.2;
+  - rtk 0.51.0.
+- **Nothing above changes from here.** Any deviation during the run (for example a harness error that needs a fix) is reported as a deviation, with the runs before and after it marked.
+
+## Deviations during the main run
+- **2026-10-18, Anthropic credit ran out** after 23 runs. The run stopped itself (account error) and resumed after a top-up. 3 interrupted runs were redone, as pre-registered.
+- **2026-10-18, OpenAI quota ran out during pyinfra.** Codex records this error only in its session log, so aimpg misread 5 Codex runs as harness errors. Under the "harness error twice" rule, that wrongly excluded 2 pyinfra commits (676799ba, 36a02ddc) for every setup.
+  - **Fix:** aimpg now reads Codex's session log, and a quota error counts as an account error that stops the run.
+  - **Repair:** the 5 quota-caused Codex records and the 2 exclusions were removed (the original file is kept as `pyinfra.jsonl.before-quota-repair`). Those runs are redone after the top-up.
+  - **Results:** no completed result of any setup was changed.

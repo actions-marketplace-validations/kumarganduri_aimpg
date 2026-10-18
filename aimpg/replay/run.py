@@ -43,7 +43,8 @@ NOT_PASSED = ("tests_failed", "timeout", "budget_hit", "agent_error")
 _ACCOUNT_ERROR = re.compile(r"credit balance|invalid x-api-key|invalid api key|authentication_error|permission_error|billing", re.I)
 _ACCOUNT_STATUS = {401, 402, 403}  # Claude Code's result carries api_error_status
 # The same for OpenAI (Codex): no quota, bad key.
-_OPENAI_ACCOUNT_ERROR = re.compile(r"insufficient_quota|invalid_api_key|incorrect api key|401 unauthorized|exceeded your current quota", re.I)
+_OPENAI_ACCOUNT_ERROR = re.compile(r"insufficient_quota|invalid_api_key|incorrect api key|401 unauthorized|exceeded your current quota|"
+                                   r"quota exceeded|usage_limit_exceeded", re.I)
 
 
 @dataclass
@@ -327,7 +328,7 @@ def _finish_other(commit: Commit, setup: Setup, layout: Layout, work: Path, cfgd
         cost = sum(p for p in prices if p is not None) if cost_known else 0.0
         check = "unverified (codex rollout log)" if requests else "empty transcript"
     note = f"blocked: {blocked[:5]}" if blocked else ""
-    out = _codex_errors(res.stdout or "", res.stderr or "") if setup.agent == "codex" else ""
+    out = _codex_errors(res.stdout or "", res.stderr or "", cfgdir / "sessions") if setup.agent == "codex" else ""
     if res.timed_out:
         return record("timeout", usages=usages, cost=cost, check=check, note=note, model=model, cost_known=cost_known)
     if setup.agent == "codex" and _OPENAI_ACCOUNT_ERROR.search(out):
@@ -347,7 +348,7 @@ def _finish_other(commit: Commit, setup: Setup, layout: Layout, work: Path, cfgd
     return rec
 
 
-def _codex_errors(stdout: str, stderr: str) -> str:
+def _codex_errors(stdout: str, stderr: str, sessions: Path | None = None) -> str:
     """Only Codex's own error events, never the code or command output it prints.
 
     Found in the first real Codex run: the task was about handling OpenAI's
@@ -363,6 +364,17 @@ def _codex_errors(stdout: str, stderr: str) -> str:
         if isinstance(event, dict) and event.get("type") in ("error", "turn.failed"):
             lines.append(json.dumps(event.get("message") or event.get("error")))
     lines += [l for l in stderr.splitlines() if " ERROR " in l or l.startswith("Error")]
+    # Codex can also end a turn with an error that only its session log records (found in the
+    # main run: "Quota exceeded ... usage_limit_exceeded" looked like a harness error)
+    for path in sorted(sessions.rglob("*.jsonl")) if sessions is not None and sessions.is_dir() else []:
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            payload = event.get("payload") if isinstance(event, dict) else None
+            if isinstance(payload, dict) and payload.get("type") in ("task_complete", "error", "stream_error") and payload.get("error"):
+                lines.append(json.dumps(payload.get("error")))
     return "\n".join(lines)
 
 
