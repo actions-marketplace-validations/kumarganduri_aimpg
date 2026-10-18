@@ -1,0 +1,281 @@
+"""Build the Report No. 1 page (and its public data folder) from the study's own result files.
+
+    uv run python docs/study/report-1/make_page.py OUT_DIR
+
+Reads ~/.aimpg/study/report-1/runs-report.json and runs/*.jsonl, plus this folder's
+selection.json. Writes OUT_DIR/index.html and OUT_DIR/data/ (raw records with local
+paths replaced by repo URLs). Every number on the page comes from those files.
+"""
+
+from __future__ import annotations
+
+import html
+import json
+import math
+import shutil
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).parent
+STATE = Path.home() / ".aimpg" / "study" / "report-1"
+REPO_URL = "https://github.com/kumarganduri/aimpg"
+PREREG = f"{REPO_URL}/blob/main/docs/study/report-1/PREREGISTRATION.md"
+
+LABEL = {
+    "claude-code@haiku": "Haiku 5.5", "claude-code@opus": "Opus 5.5", "codex@gpt-6.1-sol": "Codex (gpt-6.1-sol)",
+    "claude-code+rtk": "RTK (on Sonnet 5.5)", "chain-fresh": "Fresh session for the next task",
+    "claude-code": "Sonnet 5.5", "chain-continue": "continuing the session",
+}
+METRIC = {"per_solved": "cost per solved task", "tokens": "tokens per attempt", "per_attempt": "cost per attempted task"}
+VERDICT = {
+    "claude-code@haiku": "About 6× cheaper per solved task, solving almost as much (49% vs 51%).",
+    "claude-code@opus": "Solves more (61% vs 51%) but costs about 2.6× more per solved task.",
+    "codex@gpt-6.1-sol": "Solved a bit more (57% vs 51%); cost per solved task about the same. No difference shown.",
+    "claude-code+rtk": "No token saving shown (+1%, −6% to +9%), and the same cost. RTK fired in 163 of 168 runs.",
+    "chain-fresh": "Cost 13% more than continuing, despite 16% fewer tokens: the new session has to write its context to the cache again.",
+}
+
+
+def load():
+    report = json.loads((STATE / "runs-report.json").read_text())
+    sel = json.loads((HERE / "selection.json").read_text())
+    urls = {r["path"]: r["url"] for r in sel["repos"]}
+    return report, sel, urls
+
+
+def pct(r):
+    return "—" if r is None else f"{(r - 1) * 100:+.0f}%"
+
+
+def times(r):
+    if r is None:
+        return "—"
+    return f"{r:.2f}×" if r < 10 else f"{r:.1f}×"
+
+
+def forest(c, urls) -> str:
+    """Log-scale dot plot: overall ratio with 95% CI, plus one dot per repo, on the primary metric."""
+    key = {"per_solved": ("ratio_per_solved", "ratio_per_solved_ci"), "tokens": ("ratio_tokens", "ratio_tokens_ci"),
+           "per_attempt": ("ratio_per_attempt", "ratio_per_attempt_ci")}[c["primary"]]
+    point, ci = c[key[0]], c[key[1]]
+    repo_vals = [(Path(r).name, v[key[0]]) for r, v in c["per_repo"].items() if v.get(key[0])]
+    lo, hi = 0.1, 5.0
+    w, h, pad = 640, 132, 44
+
+    def x(v):
+        v = min(max(v, lo), hi)
+        return pad + (math.log(v) - math.log(lo)) / (math.log(hi) - math.log(lo)) * (w - 2 * pad)
+
+    ticks = [0.1, 0.25, 0.5, 1, 2, 4]
+    parts = [f'<svg viewBox="0 0 {w} {h}" role="img" aria-label="{html.escape(LABEL.get(c["challenger"], c["challenger"]))}: '
+             f'{METRIC[c["primary"]]} relative to {html.escape(LABEL.get(c["baseline"], c["baseline"]))}">']
+    for t in ticks:
+        parts.append(f'<line x1="{x(t):.1f}" y1="18" x2="{x(t):.1f}" y2="{h - 26}" class="{"one" if t == 1 else "grid"}"/>')
+        parts.append(f'<text x="{x(t):.1f}" y="{h - 8}" class="tick" text-anchor="middle">{t:g}×</text>')
+    for i, (name, v) in enumerate(sorted(repo_vals, key=lambda t: t[1])):
+        parts.append(f'<circle cx="{x(v):.1f}" cy="{42 + (i % 4) * 9}" r="4.5" class="repo"><title>{html.escape(name)}: {times(v)}</title></circle>')
+    if ci:
+        parts.append(f'<line x1="{x(ci[0]):.1f}" y1="92" x2="{x(ci[1]):.1f}" y2="92" class="ci"/>')
+    if point:
+        parts.append(f'<rect x="{x(point) - 6:.1f}" y="86" width="12" height="12" class="point"><title>overall {times(point)}</title></rect>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def write_data(out: Path, urls: dict) -> int:
+    data = out / "data"
+    if data.exists():
+        shutil.rmtree(data)
+    data.mkdir(parents=True)
+    n = 0
+    for path in sorted((STATE / "runs").glob("*.jsonl")):
+        lines = []
+        for line in path.read_text().splitlines():
+            d = json.loads(line)
+            if "repo" in d:
+                d["repo"] = urls.get(d["repo"], d["repo"])
+            lines.append(json.dumps(d))
+            n += "cost_usd" in d and d.get("outcome") != "account_error"
+        text = "\n".join(lines) + "\n"
+        assert str(Path.home()) not in text, "a local path would be published"
+        (data / path.name).write_text(text)
+    original = STATE / "runs" / "pyinfra.jsonl.before-quota-repair"  # promised on the page: the file before the repair
+    if original.exists():
+        text = original.read_text()
+        for local, url in urls.items():
+            text = text.replace(local, url)
+        (data / "pyinfra.before-quota-repair.jsonl").write_text(text)
+    shutil.copytree(HERE / "selection", data / "selection")
+    shutil.copy(HERE / "selection.json", data / "selection.json")
+    for f in (data / "selection").glob("*.json"):
+        f.write_text(f.read_text().replace(str(Path.home() / "aimpg-study"), "repos"))
+    (data / "selection.json").write_text((data / "selection.json").read_text().replace(str(Path.home() / "aimpg-study"), "repos"))
+    shutil.copy(STATE / "runs-report.json", data / "report.json")
+    rep = (data / "report.json").read_text()
+    for local, url in urls.items():
+        rep = rep.replace(local, url)
+    (data / "report.json").write_text(rep)
+    for f in data.rglob("*"):
+        if f.is_file():
+            assert str(Path.home()) not in f.read_text(errors="ignore"), f"local path in {f}"
+    items = sorted(p.relative_to(data).as_posix() for p in data.rglob("*") if p.is_file())
+    (data / "index.html").write_text("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                                     "<title>Report No. 1 data</title><body style='font:15px/1.6 system-ui;margin:24px'>"
+                                     "<h1 style='font-size:20px'>AI Coding MPG Report No. 1: raw data</h1><ul>"
+                                     + "".join(f"<li><a href='{html.escape(i)}'>{html.escape(i)}</a></li>" for i in items)
+                                     + "</ul><p>One JSON record per line: setup, commit, repeat, outcome, model, tokens per request "
+                                       "[fresh, cache write, cache read, output], cost at published prices, seconds.</p>")
+    return n
+
+
+def page(report, sel, urls, n_runs: int, total_usd: float) -> str:
+    e = html.escape
+    rows, charts = [], []
+    for c in report:
+        ch, b = c["challenger"], c["baseline"]
+        a_ch, a_b = c["arms"][ch], c["arms"][b]
+        sr_ch, sr_b = a_ch["solved"] / a_ch["runs"], a_b["solved"] / a_b["runs"]
+        lo, hi = c["solve_ci"][ch]
+        p = "< 0.001" if c["p_holm"] is not None and c["p_holm"] < 0.001 else (f"{c['p_holm']:.3f}" if c["p_holm"] is not None else "—")
+        found = c["headline"]
+        rows.append(
+            f'<tr class="{"found" if found else ""}"><th scope="row">{e(LABEL.get(ch, ch))}<small>vs {e(LABEL.get(b, b))}</small></th>'
+            f'<td>{e(METRIC[c["primary"]])}</td>'
+            f'<td class="num">{sr_ch:.0%} <small>({lo:.0%}–{hi:.0%})</small><br><small>vs {sr_b:.0%}</small></td>'
+            f'<td class="num">{pct(c["ratio_per_solved"])}<br><small>{pct((c["ratio_per_solved_ci"] or [None, None])[0])} to {pct((c["ratio_per_solved_ci"] or [None, None])[1])}</small></td>'
+            f'<td class="num">{pct(c["ratio_per_attempt"])}<br><small>{pct((c["ratio_per_attempt_ci"] or [None, None])[0])} to {pct((c["ratio_per_attempt_ci"] or [None, None])[1])}</small></td>'
+            f'<td class="num">{pct(c["ratio_tokens"])}<br><small>{pct((c["ratio_tokens_ci"] or [None, None])[0])} to {pct((c["ratio_tokens_ci"] or [None, None])[1])}</small></td>'
+            f'<td class="num">{c["repos"] - c["cheaper_in_repos"] if (c[{"per_solved":"ratio_per_solved","tokens":"ratio_tokens","per_attempt":"ratio_per_attempt"}[c["primary"]]] or 1) > 1 else c["cheaper_in_repos"]} of {c["repos"]}</td>'
+            f'<td class="num">{p}</td><td>{"<b>Finding</b>" if found else "Not shown"}</td></tr>')
+        charts.append(
+            f'<figure><figcaption><b>{e(LABEL.get(ch, ch))}</b> vs {e(LABEL.get(b, b))}: {e(METRIC[c["primary"]])} '
+            f'<span class="{"tag found" if found else "tag"}">{"finding" if found else "not shown"}</span>'
+            f'<span class="verdict">{e(VERDICT.get(ch, ""))}</span></figcaption>{forest(c, urls)}</figure>')
+    repos = ", ".join(f'<a href="{e(r["url"])}">{e(Path(r["path"]).name)}</a>' for r in sel["repos"])
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Coding MPG Report No. 1</title>
+<meta name="description" content="What AI coding agents cost per solved task on 56 real commits from 8 open-source repos, pre-registered, with all raw data.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,600;112,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single report column; each comparison gets a log-scale dot plot where 1× means "same as the baseline". */
+:root {{ --bg:#eef2f0; --paper:#f8faf9; --ink:#13302f; --muted:#557069; --line:#cfdcd7; --accent:#c27a00; --accent-soft:#f6e6c6;
+  --good:#1d7a4f; --dot:#3b6b65; --display:"Archivo","Helvetica Neue",Arial,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace; }}
+@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) {{ --bg:#0d1a1b; --paper:#132426; --ink:#e2ece8; --muted:#93aaa3;
+  --line:#24393a; --accent:#f0ad3a; --accent-soft:#3a2c12; --good:#5cc493; --dot:#8fbdb5; color-scheme:dark; }} }}
+:root[data-theme="dark"] {{ --bg:#0d1a1b; --paper:#132426; --ink:#e2ece8; --muted:#93aaa3; --line:#24393a; --accent:#f0ad3a;
+  --accent-soft:#3a2c12; --good:#5cc493; --dot:#8fbdb5; color-scheme:dark; }}
+* {{ box-sizing:border-box; }} body {{ margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 var(--body); }}
+.wrap {{ max-width:880px; margin:0 auto; padding-inline:20px; padding-block:40px 72px; }}
+h1,h2 {{ font-family:var(--display); font-stretch:112%; text-wrap:balance; margin:0; letter-spacing:-0.01em; }}
+h1 {{ font-size:clamp(32px,6vw,50px); line-height:1.04; font-weight:800; }} h2 {{ font-size:22px; font-weight:600; margin-top:44px; }}
+p {{ max-width:68ch; margin:10px 0 0; }} a {{ color:inherit; text-decoration-color:var(--accent); text-underline-offset:3px; }}
+.eyebrow {{ font:500 12px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--accent); }}
+.lede {{ color:var(--muted); font-size:18px; }} small {{ color:var(--muted); display:block; font-size:12.5px; }}
+.facts {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:24px; }}
+.facts div {{ background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }}
+.facts b {{ display:block; font:600 24px/1.2 var(--mono); font-variant-numeric:tabular-nums; }}
+figure {{ margin:22px 0 0; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:14px 16px 6px; }}
+figcaption {{ font-size:15px; }} .verdict {{ display:block; color:var(--muted); font-size:14px; margin-top:2px; }}
+.tag {{ font:500 11px/1 var(--mono); text-transform:uppercase; letter-spacing:.08em; padding:3px 7px; border-radius:99px;
+  border:1px solid var(--line); color:var(--muted); margin-left:6px; vertical-align:2px; }}
+.tag.found {{ color:var(--good); border-color:var(--good); }}
+svg {{ width:100%; height:auto; display:block; margin-top:4px; }} .grid {{ stroke:var(--line); stroke-width:1; }}
+.one {{ stroke:var(--muted); stroke-width:1.5; stroke-dasharray:4 3; }} .tick {{ fill:var(--muted); font:12px var(--mono); }}
+.repo {{ fill:var(--dot); opacity:.55; }} .ci {{ stroke:var(--accent); stroke-width:4; stroke-linecap:round; }} .point {{ fill:var(--accent); }}
+.legend {{ font-size:13px; color:var(--muted); margin-top:10px; }}
+.tablewrap {{ overflow-x:auto; margin-top:16px; }} table {{ border-collapse:collapse; width:100%; font-size:14px; min-width:760px; }}
+th,td {{ text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:top; }}
+thead th {{ font:500 11.5px/1.3 var(--mono); text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }}
+td.num {{ font-variant-numeric:tabular-nums; white-space:nowrap; }} tr.found th {{ color:var(--good); }}
+code {{ background:var(--accent-soft); padding:1px 5px; border-radius:4px; font:13px var(--mono); }}
+ul {{ max-width:70ch; padding-left:20px; }} li {{ margin-top:6px; }}
+footer {{ margin-top:48px; border-top:1px solid var(--line); padding-top:14px; color:var(--muted); font-size:14px; }}
+</style></head><body><div class="wrap">
+<div class="eyebrow">AI Coding MPG · Report No. 1</div>
+<h1>What AI coding agents cost per solved task, on real code</h1>
+<p class="lede">56 real commits from 8 open-source projects, each redone 3 times by 5 agent setups in a sandbox, judged by the
+project's own hidden tests. Pre-registered before any run, and every record is public.</p>
+<div class="facts">
+<div><b>{n_runs}</b>agent runs</div><div><b>8 · 56</b>repos · commits</div><div><b>${total_usd:,.0f}</b>total cost, at list prices</div><div><b>3 of 5</b>comparisons with a finding</div>
+</div>
+
+<h2>The findings</h2>
+<p>Every setup is compared with Claude Code on Sonnet 5.5, except the last chart, which compares a fresh session with continuing
+the session. The square shows the result overall with its 95% interval, and each dot is one repo. Left of the dashed line means lower
+(cheaper or fewer tokens), right means higher.</p>
+{''.join(charts)}
+<p class="legend">A result counts as a <b>finding</b> only if it was pre-registered as the comparison's primary measure, its Holm-adjusted p is
+below 0.05, and its direction holds in at least 5 of the 6+ repos. Everything else is reported as "not shown", with its interval.</p>
+
+<h2>All numbers</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Setup</th><th>Primary measure</th><th>Solved (95% CI)</th><th>$ per solved task</th><th>$ per attempt</th><th>Tokens per attempt</th><th>Repos in the same direction</th><th>Holm p</th><th>Result</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table></div>
+<p class="legend">Changes are relative to the baseline, with 95% intervals from a bootstrap over repos and then commits. Dollars are each run's
+tokens priced at Anthropic's and OpenAI's published prices.</p>
+
+<h2>How it was done</h2>
+<ul>
+<li><b>Repos</b>, picked by a rule written before any run: {repos}. pydantic was replaced by the first reserve, litestar, under that rule, because it now builds its core from Rust source.</li>
+<li><b>Commits:</b> the first 7 per repo after every model's training cutoff (2026-07-01) whose tests fail before the change and pass after it, twice each. Every candidate checked is listed, with its fingerprint.</li>
+<li><b>Task:</b> the commit message plus the names the hidden tests import. The commit's own tests decide, and any edits an agent makes to them are undone first.</li>
+<li><b>Sandbox:</b> each run starts from a fresh copy without git history. The only network is the model's API.</li>
+<li><b>Setups:</b> Claude Code 2.1.287 on Sonnet 5.5, Haiku 5.5 or Opus 5.5; Codex 0.159.2 on gpt-6.1-sol; RTK 0.51.0 on Sonnet 5.5.
+Fresh-session pairs: task 1 in a session, then task 2 either continued or started fresh with a one-line summary.</li>
+<li><b>Statistics:</b> 5 primary comparisons, Holm-corrected, with a headline only if the direction holds in at least 5 of the 6+ repos. The pre-registration is
+<a href="{PREREG}">frozen on GitHub</a>.</li>
+</ul>
+
+<h2>What went wrong, and what we changed</h2>
+<ul>
+<li><b>Before any paid run, the harness was fixed so tests run fairly.</b> Without these fixes, agents would have been marked as failing in 4 repos:
+<ul>
+<li>localhost networking for tests' own servers;</li>
+<li>placeholder versions for builds that read git history;</li>
+<li>coverage thresholds off;</li>
+<li>imports from a folder;</li>
+<li>dependencies pinned to GitHub commits.</li>
+</ul></li>
+<li><b>The $1.95 pilot found that Claude Code shows Haiku 5.5 runs at about 27× the published price.</b> Every run is priced from its tokens at the published prices.</li>
+<li><b>During the run, both accounts ran out of credit once.</b> Interrupted runs were redone. Codex's quota error was at first misread as aimpg's own failure, which wrongly excluded 2 commits; that was repaired before the analysis. The original file is published.</li>
+</ul>
+<p>All of these are dated in the pre-registration's change and deviation lists.</p>
+
+<h2>Check it yourself</h2>
+<ul>
+<li><b>Raw data:</b> <a href="data/">every run record</a> (outcome, tokens per request, cost and time), the <a href="data/selection/">selection lists</a> and <a href="data/report.json">the analysis output</a>.</li>
+<li><b>Rerun any comparison on your machine:</b> <code>aimpg verify --rerun &lt;record&gt; --repo &lt;clone&gt;</code>. Independent reruns appear as <b>Reproduced</b> on the <a href="../">scoreboard</a>.</li>
+<li><b>Code:</b> <a href="{REPO_URL}">aimpg</a> (MIT), with <code>aimpg/replay/study.py</code> for the statistics.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>This covers 8 Python and TypeScript repos with good test suites, and tasks small enough to judge by tests. It may not hold for large refactors or other languages.</li>
+<li>One configuration per tool, at default settings. RTK's maintainers were asked to review their setup and didn't reply by the deadline (<a href="https://github.com/rtk-ai/rtk/discussions/4511">discussion</a>).</li>
+<li>Prices change. The ratios hold only as long as the published prices behind them do.</li>
+<li>aimpg is built by one developer using Claude Code. The author paid for every run and has no affiliation with any vendor tested.</li>
+</ul>
+<footer>AI Coding MPG Report No. 1 · data CC BY 4.0 · <a href="{REPO_URL}">github.com/kumarganduri/aimpg</a></footer>
+</div></body></html>
+"""
+
+
+def main(out: Path) -> None:
+    report, sel, urls = load()
+    out.mkdir(parents=True, exist_ok=True)
+    n = write_data(out, urls)
+    total = 0.0
+    for path in (STATE / "runs").glob("*.jsonl"):
+        for line in path.read_text().splitlines():
+            d = json.loads(line)
+            if "cost_usd" in d and d.get("outcome") != "account_error":
+                total += d["cost_usd"]
+    (out / "index.html").write_text(page(report, sel, urls, n, total))
+    print(f"wrote {out / 'index.html'} ({n} run records, ${total:.2f})")
+
+
+if __name__ == "__main__":
+    main(Path(sys.argv[1]))
