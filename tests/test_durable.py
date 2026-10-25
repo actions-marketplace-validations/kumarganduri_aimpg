@@ -75,3 +75,16 @@ def test_ledger_keeps_the_fuller_record(tmp_path):
     assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 5
     ledger.record([energy(8)], path)
     assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 8
+
+
+def test_ledger_counts_a_split_session_once_not_once_per_commit(tmp_path):
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy
+
+    path = tmp_path / "ledger.json"
+    t = Task("/r", "abc", 1.0, "s", "fuzzy", "kept", author="a")
+    for i in range(8):
+        t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), 0.25)  # a session split four ways
+    ledger.record([TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=0.1)], path)
+    assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 2

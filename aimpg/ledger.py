@@ -34,9 +34,9 @@ def record(energies, path: Path = LEDGER) -> int:
     now = time.time()
     for e in energies:
         t = e.task
-        requests = len(t.requests) + len(t.lead_up)
-        if requests == 0:
+        if not (t.requests or t.lead_up):
             continue
+        requests = round(sum(t.weights) + sum(t.lead_up_weights))  # a split session counts once in all
         k = key(t.repo, t.sha)
         old = data.get(k)
         if old and old.get("requests", 0) > requests:
