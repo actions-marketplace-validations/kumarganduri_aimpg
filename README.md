@@ -10,7 +10,7 @@ uvx aimpg report
 
 **New here? [aimpg in 5 minutes](https://kumarganduri.github.io/aimpg-scoreboard/start/)** walks you from install to your first numbers, the live status line, and your team's GitHub Action, with copy buttons for every command.
 
-**Using it as a GitHub Action?** Add `uses: kumarganduri/aimpg@v0.6.3` to a workflow and every pull request shows its AI cost, and every week your team's cost per working change. Copy the workflow from [Team numbers, without a server](#6-team-numbers-without-a-server).
+**Using it as a GitHub Action?** Add `uses: kumarganduri/aimpg@v0.6.3` to a workflow and every pull request shows its AI cost, and every week your team's cost per working change. Copy the workflow from [Team numbers, without a server](https://github.com/kumarganduri/aimpg#6-team-numbers-without-a-server).
 
 ```
 YOUR AI CODING
@@ -57,7 +57,7 @@ Team export? Add `--cursor-user "Your Name"` to count only your rows.
 
 `aimpg report --share` also writes a card to post, with totals only (no repo names, commit messages or code), and prints a one-line post to go with it:
 
-![aimpg share card](docs/receipt-card.png)
+![aimpg share card](https://raw.githubusercontent.com/kumarganduri/aimpg/main/docs/receipt-card.png)
 
 ### 2. Get tips measured on your own habits, not generic advice
 The receipt replays your own logs under "what if" rules and tells you what would have saved the most, in Wh and dollars. For example: how much energy went into re-reading old conversation in long sessions, or into running the biggest model for routine fixes.
@@ -104,7 +104,7 @@ VERDICT: NOT PROVEN
 ```
 That's the real result on the author's Legwork repo: no reliable energy saving shown on one repo (RTK advertises token savings; a larger, pre-registered study across several public repos is under way). Your repo may differ, and now you can check.
 
-Every run writes a **record** (`~/.aimpg/verify/*.record.json`) holding versions, both setups, each run's tokens, $ and outcome, and the verdict, but never code, diffs or commit messages. Repo and commits are hashed unless you add `--public`. Anyone can recheck the math and the record's consistency for free with `aimpg verify --check record.json` (it can't prove the runs happened), and rerun a public record on their own machine with `aimpg verify --rerun record.json --repo <clone>`, which first shows every command, hook and prompt the record would run and asks before running them. Private records keep only fingerprints (SHA-256) of your prompts, CLAUDE.md, settings and commands, never the text. Records also list every redone attempt and excluded commit.
+Every run writes a **record** (`~/.aimpg/verify/*.record.json`) holding versions, both setups, each run's tokens, $ and outcome, and the verdict, but never code, diffs or commit messages. Repo and commits are hashed unless you add `--public`. Anyone can recheck the math and the record's consistency for free with `aimpg verify --check record.json` (it can't prove the runs happened), and rerun a public record from the scoreboard on their own machine with `aimpg verify --rerun records/<user>/<id>.json --repo <clone>`, which first shows every command, hook and prompt the record would run and asks before running them. Private records keep only fingerprints (SHA-256) of your prompts, CLAUDE.md, settings and commands, never the text. Records also list every redone attempt and excluded commit.
 
 **Share it:** `aimpg submit <record>` publishes a stripped-down copy on the [public scoreboard](https://kumarganduri.github.io/aimpg-scoreboard) (no code, prompts, commit ids or repo name). It shows the exact file first and asks, then opens a pull request. Results only count once enough repos and people back them, and only independent reruns make the headline.
 
@@ -166,20 +166,22 @@ For a standard figure, `aimpg sci --json sci.json` reports your carbon intensity
 
 **Working changes:** aimpg keeps a small history of what each commit cost (never prompts or code), because Claude Code deletes its own logs after 30 days. Once a commit is 30 days old, it is judged: still on the main branch and not reverted or largely rewritten counts as a *working change*. The receipt then shows **cost per working change** and a **waste ratio** (AI spend on work that didn't last).
 
-**Energy:** an estimate with stated assumption ranges, not a measurement: a physical formula, not a price proxy. Prefill compute for new input, one KV-cache re-read per output token (so long contexts cost more), plus datacenter overhead. Model sizes aren't public, so every number is a range. Overheads follow Google's full-stack measurement of a median Gemini prompt (chips, host CPU and memory, idle capacity, cooling ≈ 1.7× the chips alone), and a chat-sized prompt on a mid-size model comes out at 0.017–0.34 Wh, bracketing Google's disclosed 0.24 Wh ([arXiv 2508.15734](https://arxiv.org/pdf/2508.15734)). Sources for every factor are in [`aimpg/factors.json`](aimpg/factors.json), [`aimpg/prices.json`](aimpg/prices.json) and [`aimpg/equivalences.json`](aimpg/equivalences.json).
+### How energy is estimated
 
-**Replays:** each run starts from the code just before your commit, in a fresh, history-free copy, inside a sandbox (Seatbelt on macOS, bubblewrap on Linux). The only network allowed is the model API, through an allowlisting proxy. Your own tests judge the result, and edited tests are always restored before judging. Every token count is cross-checked against Claude Code's own totals. Details are in [docs/designs/aimpg-design.md](docs/designs/aimpg-design.md).
+**Energy:** an estimate with stated assumption ranges, not a measurement: a physical formula, not a price proxy. Prefill compute for new input, one KV-cache re-read per output token (so long contexts cost more), plus datacenter overhead. Model sizes aren't public, so every number is a range. Overheads follow Google's full-stack measurement of a median Gemini prompt (chips, host CPU and memory, idle capacity, cooling ≈ 1.7× the chips alone), and a chat-sized prompt on a mid-size model comes out at 0.017–0.34 Wh, bracketing Google's disclosed 0.24 Wh ([arXiv 2508.15734](https://arxiv.org/pdf/2508.15734)). Sources for every factor are in [`aimpg/factors.json`](https://github.com/kumarganduri/aimpg/blob/main/aimpg/factors.json), [`aimpg/prices.json`](https://github.com/kumarganduri/aimpg/blob/main/aimpg/prices.json) and [`aimpg/equivalences.json`](https://github.com/kumarganduri/aimpg/blob/main/aimpg/equivalences.json).
 
-Questions people ask (is it sponsored, are the energy numbers guesses, is it safe to run): see the [FAQ](docs/FAQ.md).
+**Replays:** each run starts from the code just before your commit, in a fresh, history-free copy, inside a sandbox (Seatbelt on macOS, bubblewrap on Linux). The only network allowed is the model API, through an allowlisting proxy. Your own tests judge the result, and edited tests are always restored before judging. Every token count is cross-checked against Claude Code's own totals. Details are in [docs/designs/aimpg-design.md](https://github.com/kumarganduri/aimpg/blob/main/docs/designs/aimpg-design.md).
+
+Questions people ask (is it sponsored, are the energy numbers guesses, is it safe to run): see the [FAQ](https://github.com/kumarganduri/aimpg/blob/main/docs/FAQ.md).
 
 ## Limits (honest list)
 
-- Claude Code and Codex CLI logs are read automatically. Cursor keeps token usage on its servers, so it needs its usage export (below), and that export doesn't say which folder the work was in: give `--cursor-repo` and requests are matched to your next own commit there by time alone (shown as "by time only"). Replays and `verify` need macOS or Linux and an API key (about $0.10–0.30 per run). On Linux install bubblewrap (`sudo apt install bubblewrap`); Ubuntu 24.04+ also needs a one-time AppArmor rule for bwrap, which aimpg prints if it's missing.
+- Claude Code and Codex CLI logs are read automatically. Cursor keeps token usage on its servers, so it needs its usage export (see "Using Cursor?" above), and that export doesn't say which folder the work was in: give `--cursor-repo` and requests are matched to your next own commit there by time alone (shown as "by time only"). Replays and `verify` need macOS or Linux and an API key (about $0.10–0.30 per run). On Linux install bubblewrap (`sudo apt install bubblewrap`); Ubuntu 24.04+ also needs a one-time AppArmor rule for bwrap, which aimpg prints if it's missing.
 - Windows: `report`, `live` and the team commands are untested there; replays and `verify` need macOS or Linux.
 - Replays let code in the sandbox use localhost, because tests start local servers. On macOS that includes services already listening on your machine's localhost (a local database, for example). On Linux each run gets its own private localhost. The internet stays blocked except the model's API.
 - Energy is an estimate with a wide range (model sizes are guesses within stated bounds); dollars are close (within about 7% of Claude Code's own session totals on the author's logs).
 - Tips are upper bounds and overlap; they can't be added together.
-- Replays from commit messages alone are hard (12% solved on the author's repo); `--task-mode tests` shows the agent the tests, which makes tasks easier than real work but keeps comparisons fair.
+- Replays from commit messages alone are hard (12% solved on the author's repo), so by default (`--task-mode hint`) the agent also gets the names the hidden tests import; `--task-mode tests` shows it the tests themselves, which makes tasks easier than real work but keeps comparisons fair.
 
 ## License
 

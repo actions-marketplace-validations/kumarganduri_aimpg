@@ -122,3 +122,21 @@ In the study: litestar (replacing pydantic), starlette, click, pyinfra, axios, l
   - **Fix:** aimpg now reads Codex's session log, and a quota error counts as an account error that stops the run.
   - **Repair:** the 5 quota-caused Codex records and the 2 exclusions were removed (the original file is kept as `pyinfra.jsonl.before-quota-repair`). Those runs are redone after the top-up.
   - **Results:** no completed result of any setup was changed.
+
+## Found after the analysis (2026-10-25, pre-launch review)
+Added after the results were known. Nothing above has been edited.
+- **Commit dates: 10 of the 56 commits were authored before 2026-07-01.** The commit rule above says "authored on or after 2026-07-01", but aimpg's selection compared the cutoff with the *committer* date. Those 10 commits were committed (merged or rebased) after the cutoff but written earlier:
+  - homebridge: all 7 (c58eff4c on 2026-06-04; a7a1d487, dc0ef09d, 47382933, d934a479, adc95e2e, 8f00f8e6 on 2026-05-08; all committed 2026-07-12);
+  - click: 93ba0075 (2026-06-30), 9f9b149e (2026-05-29), fbdd4340 (2026-05-23).
+
+  Code written before a model's training cutoff may have been public (for example in an open pull request) while the model was trained. **Sensitivity check:** without these 10 commits (7 repos, 46 commits), every result keeps its direction and its finding status:
+  - Haiku 5.5: −82% per solved task (−86% to −79%), 7 of 7 repos.
+  - Opus 5.5: +176% (+93% to +249%), 0 of 7 repos.
+  - Codex: +17% (−24% to +51%), not shown.
+  - RTK: −3% tokens (−10% to +4%), not shown.
+  - Fresh session: +11% per attempt (+2% to +28%), 0 of 7 repos.
+
+  The results above remain the pre-registered analysis; the report page shows both. aimpg's selection now checks the author date as well.
+- **Pilot:** the pilot records (litestar, 13 runs) are now published with the data. Priced from tokens at the final price tables they add up to $1.79; the $1.81 above was computed on 2026-10-13.
+- **Published file name:** the file before the quota repair is published as `pyinfra.jsonl.before-quota-repair`, as named above, so that tools reading `*.jsonl` don't include it.
+- **Reruns:** the study's runs are not `aimpg verify` records, so `aimpg verify --rerun` can't take them directly. To recompute every number from the published data: `aimpg study report plan.json --runs data/`. To rerun a comparison, use the public Haiku-vs-Sonnet records on the scoreboard (click, starlette, axios), or rerun the whole study with `aimpg study run plan.json`.

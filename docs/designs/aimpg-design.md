@@ -1,6 +1,8 @@
 # Design: Real-world MPG for AI agents (working name `aimpg`)
 
 Written 2026-10-01; updated through the eng review and the Phase 1 build.
+
+> Historical design record. Some details (replay task modes, tips, numbers) have changed since; the README describes current behaviour.
 Branch: main (new project, no repo yet)
 Repo: github.com/kumarganduri/aimpg
 Status: APPROVED

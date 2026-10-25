@@ -36,6 +36,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["aimpg"]
 
+[tool.hatch.build.targets.sdist]
+# Source release: the package, its tests and the user docs; not launch drafts, media or spikes
+include = ["aimpg", "tests", "README.md", "LICENSE", "pyproject.toml", "docs/FAQ.md", "docs/receipt-card.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

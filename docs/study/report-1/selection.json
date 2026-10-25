@@ -1,42 +1,42 @@
 {
  "repos": [
   {
-   "path": "/Users/kumarganduri/aimpg-study/litestar",
+   "path": "~/aimpg-study/litestar",
    "url": "https://github.com/litestar-org/litestar",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/starlette",
+   "path": "~/aimpg-study/starlette",
    "url": "https://github.com/Kludex/starlette",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/click",
+   "path": "~/aimpg-study/click",
    "url": "https://github.com/pallets/click",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/pyinfra",
+   "path": "~/aimpg-study/pyinfra",
    "url": "https://github.com/pyinfra-dev/pyinfra",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/axios",
+   "path": "~/aimpg-study/axios",
    "url": "https://github.com/axios/axios",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/lint-staged",
+   "path": "~/aimpg-study/lint-staged",
    "url": "https://github.com/lint-staged/lint-staged",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/recharts",
+   "path": "~/aimpg-study/recharts",
    "url": "https://github.com/recharts/recharts",
    "qualifying": 14
   },
   {
-   "path": "/Users/kumarganduri/aimpg-study/homebridge",
+   "path": "~/aimpg-study/homebridge",
    "url": "https://github.com/homebridge/homebridge",
    "qualifying": 14
   }

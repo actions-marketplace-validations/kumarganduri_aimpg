@@ -13,7 +13,8 @@
 - Never ask anyone to upvote.
 
 **Facts to use** (all from the report):
-- 984 runs, 8 open-source repos, 56 commits, 3 repeats each, $121 at published prices. Pre-registered, with all raw data public.
+- 984 runs, 8 open-source repos, 56 commits, 3 repeats each, $121 at published prices. Pre-registered and frozen before the main run (after a $1.79 pilot), with all raw data public.
+- **Deviation found in review:** 10 of the 56 commits were written before the 2026-07-01 cutoff but committed after it (all 7 homebridge, 3 click). Without them every result keeps its direction and finding status (Haiku −82%, Opus +176%, fresh session +11%).
 - **Haiku 5.5 vs Sonnet 5.5 in Claude Code:** about 6× cheaper per solved task (−83%, 95% interval −86% to −80%); solved 49% vs 51%; cheaper in 8 of 8 repos.
 - **Opus 5.5:** solved more (61% vs 51%) but cost 2.6× more per solved task; more expensive in 8 of 8 repos.
 - **A fresh session for the next task** (with a one-line summary) cost 13% more than continuing, despite 16% fewer tokens, in 8 of 8 repos. Cache writes cost more than cache reads.
@@ -33,7 +34,7 @@
 
 > I built aimpg ("miles per gallon for AI coding") because I couldn't tell what my Claude Code work cost per change that actually shipped, or whether "saves 60% of tokens" claims hold on real code.
 >
-> To test that properly I pre-registered a study: 8 open-source repos (litestar, starlette, click, pyinfra, axios, lint-staged, recharts, homebridge), the first 7 commits after the models' training cutoff whose tests fail before the change and pass after, each redone 3 times by 5 setups in a sandbox, and judged by the repo's own hidden tests. 984 runs, $121.
+> To test that properly I pre-registered a study: 8 open-source repos (litestar, starlette, click, pyinfra, axios, lint-staged, recharts, homebridge), the first 7 commits committed after the models' training cutoff whose tests fail before the change and pass after, each redone 3 times by 5 setups in a sandbox, and judged by the repo's own hidden tests. 984 runs, $121.
 >
 > What held up, in all 8 repos:
 > - Haiku 5.5 cost about 1/6 as much as Sonnet 5.5 per solved task, solving 49% vs 51%.
@@ -41,6 +42,8 @@
 > - Starting a fresh session for the next task cost 13% *more* than continuing. Re-reading cached context is cheap; rewriting it into the cache isn't. This contradicted the tip my own tool used to give, so I removed it.
 >
 > What didn't hold up: Codex vs Claude Code (no clear difference), and a popular token-saver (no token saving shown).
+>
+> One thing I got wrong: the selection checked the commit date, not the date the code was written, so 10 of the 56 commits were written before the cutoff. Without them every result still holds; both versions are on the page.
 >
 > Limits: 8 Python/TypeScript repos with good tests; small-to-medium tasks; one config per tool; prices change. I built it with Claude Code and pay for every run myself, with no vendor affiliation. All raw records, the pre-registration and the deviations (two credit run-outs, one misclassified Codex quota error, all fixed before the analysis) are linked on the page. Any result can be rerun with one command.
 >
@@ -63,7 +66,7 @@
 3. Opus 5.5 solved more (61% vs 51%) but cost 2.6× more per solved task. Worth it when you need the extra solves; expensive as a default.
 4. "Start a fresh session after each commit"? It cost 13% MORE for the next task, despite 16% fewer tokens. Re-reading cached context is cheap; rebuilding it isn't. My own tool said otherwise, so I fixed the tool.
 5. Not shown: Codex vs Claude Code (about even), and a popular token-saver (no token saving). Reported as plainly as the wins.
-6. Pre-registered before any run, all 984 raw records public, deviations listed, and any result can be rerun with one command: [report link]
+6. Pre-registered before the main run, all 984 raw records public, deviations listed (including one I found after: 10 commits were older than the cutoff; results hold without them), and any result can be rerun with one command: [report link]
 7. For your own numbers from your Claude Code / Codex logs (nothing leaves your machine): `uvx aimpg report` · github.com/kumarganduri/aimpg
 
 ---

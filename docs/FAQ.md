@@ -16,7 +16,7 @@ Dollars are what the same tokens would cost at the API's list prices. That's a c
 By default the agent doesn't see the tests. It gets the commit message plus the names the hidden tests import, and the commit's own tests judge the result. Any edits the agent makes to tests are undone before judging. A "tests shown" mode exists, is easier, and is labeled when used.
 
 **Couldn't the model have memorized these commits?**
-Studies only use commits made after every tested model's training cutoff (Claude: June 2026; gpt-6.1-sol: April 2026). Each commit's tests also have to fail on the code before it and pass on the commit, twice each.
+Studies only use commits written and committed after every tested model's training cutoff (Claude: June 2026; gpt-6.1-sol: April 2026). Report No. 1 checked only the commit date, so 10 of its 56 commits were written earlier; its page shows that every result holds without them. Each commit's tests also have to fail on the code before it and pass on the commit, twice each.
 
 **Why not just look at my bill?**
 A bill tells you the total. aimpg tells you what each change that shipped and lasted cost, which habits drove it, and whether a cheaper model or a token-saver actually saves money on your code, judged by your tests.
@@ -31,8 +31,10 @@ Probably not to save money. aimpg shows how much of your agents' tokens were con
 Nothing, unless you choose:
 - `aimpg notes push` shares per-commit cost numbers in your git repo.
 - `aimpg submit` publishes a stripped copy of a `verify` result on the public scoreboard, after showing you the exact file.
+- `aimpg pr --post` posts the branch's AI cost, with commit subjects, as a comment on your pull request.
+- `aimpg verify`, `replay` and `study` run AI agents on your repo, so the code and commit messages they work on go to the model API you choose (Anthropic or OpenAI), exactly as when you use the agent yourself.
 
-Prompts, code, diffs, commit messages and API keys are never sent.
+Nothing is ever sent to aimpg, and API keys never leave your shell.
 
 **Windows?**
 `report` and the team commands should work, but they're untested there. Replays and `verify` need macOS or Linux.
@@ -41,8 +43,8 @@ Prompts, code, diffs, commit messages and API keys are never sent.
 On the author's repo, RTK showed no reliable energy saving, but that's one repo and RTK advertises *token* savings. In Report No. 1 RTK is judged on tokens per task, its own claim. We asked its maintainers to review our setup before running it ([discussion](https://github.com/rtk-ai/rtk/discussions/4511)), and we'll publish their response next to the results.
 
 **How do I check a result myself?**
-- `aimpg verify --check record.json` recomputes any record's verdict and checks it's consistent (free). It can't prove the runs happened.
-- `aimpg verify --rerun record.json --repo <clone>` reruns a public record on your own machine.
+- `aimpg verify --check <file>` recomputes the verdict of a record or a scoreboard file and checks it's consistent (free). It can't prove the runs happened.
+- `aimpg verify --rerun <scoreboard file> --repo <clone>` reruns a public record from the scoreboard (`records/<user>/<id>.json`) on your own machine. Reruns made this way link back to the original, which is what makes a result **Reproduced**.
 
 Only results someone else has reproduced reach the scoreboard's headline.
 

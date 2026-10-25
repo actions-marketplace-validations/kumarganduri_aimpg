@@ -21,6 +21,13 @@ STATE = Path.home() / ".aimpg" / "study" / "report-1"
 REPO_URL = "https://github.com/kumarganduri/aimpg"
 PREREG = f"{REPO_URL}/blob/main/docs/study/report-1/PREREGISTRATION.md"
 PAGE_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
+# Authored before the 2026-07-01 cutoff but committed after it (selection compared committer dates); see the deviation list
+PRE_CUTOFF = {
+    "47382933d6d6bcb0f3a6b6104c48466545172a0a", "8f00f8e627070fcdd086b1d6457acba22e82f690", "93ba0075f4881b858b61f89a753c7c10e330027e",
+    "9f9b149ea30287b4977b800a024ee68144b8c869", "a7a1d4873f47eee566ed436046067dbf1a72a145", "adc95e2e291589a903468d969d7d355d69620f41",
+    "c58eff4ccd80cf1e3336a2c558e4b0cb8e7197b7", "d934a47907276beb243611ae3183016872522fcb", "dc0ef09da32c3b591ee1c7d2d33bb88f5dc8e020",
+    "fbdd434028fe07ecf35084c945b43b938dfd639f",
+}
 
 LABEL = {
     "claude-code@haiku": "Haiku 5.5", "claude-code@opus": "Opus 5.5", "codex@gpt-6.1-sol": "Codex (gpt-6.1-sol)",
@@ -40,12 +47,46 @@ VERDICT = {
 def load():
     report = json.loads((STATE / "runs-report.json").read_text())
     sel = json.loads((HERE / "selection.json").read_text())
-    urls = {r["path"]: r["url"] for r in sel["repos"]}
+    urls = {str(Path(r["path"]).expanduser()): r["url"] for r in sel["repos"]}
     return report, sel, urls
 
 
 def pct(r):
-    return "—" if r is None else f"{(r - 1) * 100:+.0f}%"
+    if r is None:
+        return "—"
+    v = round((r - 1) * 100)
+    return "0%" if v == 0 else f"{v:+d}%"
+
+
+def records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def sensitivity() -> list:
+    """The same five comparisons without the commits authored before the cutoff."""
+    from aimpg.replay import run as runner, study
+    from aimpg.replay.verify import setup_from
+
+    plan = json.loads((HERE / "plan.json").read_text())
+    recs = [r for path in sorted((STATE / "runs").glob("*.jsonl")) for r in runner.load_results(path)[0]
+            if r.commit not in PRE_CUTOFF]
+    base, primary = setup_from(plan["baseline"]).name, plan.get("primary", {})
+    comps = [study.compare(recs, base, setup_from(c).name, primary=primary.get(c, "per_solved")) for c in plan["challengers"]]
+    comps.append(study.compare(recs, "chain-continue", "chain-fresh", primary=primary.get("fresh-session", "per_attempt")))
+    study.holm(comps)
+    return comps
+
+
+def sens_rows(comps) -> str:
+    e, out = html.escape, []
+    for c in comps:
+        key = {"per_solved": "ratio_per_solved", "tokens": "ratio_tokens", "per_attempt": "ratio_per_attempt"}[c.primary]
+        r, ci = getattr(c, key), getattr(c, key + "_ci") or (None, None)
+        same = c.repos - c.cheaper_in_repos if (r or 1) > 1 else c.cheaper_in_repos
+        out.append(f'<tr><th scope="row">{e(LABEL.get(c.challenger, c.challenger))}<small>vs {e(LABEL.get(c.baseline, c.baseline))}</small></th>'
+                   f'<td>{e(METRIC[c.primary])}</td><td class="num">{pct(r)}<br><small>{pct(ci[0])} to {pct(ci[1])}</small></td>'
+                   f'<td class="num">{same} of {c.repos}</td><td>{"<b>Finding</b>" if c.headline else "Not shown"}</td></tr>')
+    return "".join(out)
 
 
 def times(r):
@@ -105,12 +146,21 @@ def write_data(out: Path, urls: dict) -> int:
         text = original.read_text()
         for local, url in urls.items():
             text = text.replace(local, url)
-        (data / "pyinfra.before-quota-repair.jsonl").write_text(text)
+        (data / original.name).write_text(text)  # not *.jsonl, so `aimpg study report --runs data/` leaves it out
+    pilot = STATE / "pilot" / "litestar.jsonl"
+    if pilot.exists():
+        text = pilot.read_text()
+        for local, url in urls.items():
+            text = text.replace(local, url)
+        (data / "pilot").mkdir()
+        (data / "pilot" / pilot.name).write_text(text)
+    shutil.copy(HERE / "plan.json", data / "plan.json")
     shutil.copytree(HERE / "selection", data / "selection")
     shutil.copy(HERE / "selection.json", data / "selection.json")
     for f in (data / "selection").glob("*.json"):
         f.write_text(f.read_text().replace(str(Path.home() / "aimpg-study"), "repos"))
-    (data / "selection.json").write_text((data / "selection.json").read_text().replace(str(Path.home() / "aimpg-study"), "repos"))
+    (data / "selection.json").write_text((data / "selection.json").read_text().replace(str(Path.home() / "aimpg-study"), "repos")
+                                         .replace("~/aimpg-study", "repos"))
     shutil.copy(STATE / "runs-report.json", data / "report.json")
     rep = (data / "report.json").read_text()
     for local, url in urls.items():
@@ -125,11 +175,13 @@ def write_data(out: Path, urls: dict) -> int:
                                      "<h1 style='font-size:20px'>AI Coding MPG Report No. 1: raw data</h1><ul>"
                                      + "".join(f"<li><a href='{html.escape(i)}'>{html.escape(i)}</a></li>" for i in items)
                                      + "</ul><p>One JSON record per line: setup, commit, repeat, outcome, model, tokens per request "
-                                       "[fresh, cache write, cache read, output], cost at published prices, seconds.</p>")
+                                       "[fresh, cache write, cache read, output], cost at published prices, seconds.</p>"
+                                       "<p>Recompute every number: <code>aimpg study report plan.json --runs .</code> in this folder. "
+                                       "<code>pilot/</code> holds the pilot runs, which are not part of the results.</p>")
     return n
 
 
-def page(report, sel, urls, n_runs: int, total_usd: float) -> str:
+def page(report, sel, urls, n_runs: int, total_usd: float, sens: str, haiku: tuple, pilot_usd: float) -> str:
     e = html.escape
     rows, charts = [], []
     for c in report:
@@ -137,7 +189,8 @@ def page(report, sel, urls, n_runs: int, total_usd: float) -> str:
         a_ch, a_b = c["arms"][ch], c["arms"][b]
         sr_ch, sr_b = a_ch["solved"] / a_ch["runs"], a_b["solved"] / a_b["runs"]
         lo, hi = c["solve_ci"][ch]
-        p = "< 0.001" if c["p_holm"] is not None and c["p_holm"] < 0.001 else (f"{c['p_holm']:.3f}" if c["p_holm"] is not None else "—")
+        # 4,000 bootstrap resamples and 5 Holm-corrected tests: nothing below about 0.003 can be told apart
+        p = "< 0.003" if c["p_holm"] is not None and c["p_holm"] < 0.003 else (f"{c['p_holm']:.3f}" if c["p_holm"] is not None else "—")
         found = c["headline"]
         rows.append(
             f'<tr class="{"found" if found else ""}"><th scope="row">{e(LABEL.get(ch, ch))}<small>vs {e(LABEL.get(b, b))}</small></th>'
@@ -204,7 +257,7 @@ footer {{ margin-top:48px; border-top:1px solid var(--line); padding-top:14px; c
 <div class="eyebrow">AI Coding MPG · Report No. 1</div>
 <h1>What AI coding agents cost per solved task, on real code</h1>
 <p class="lede">56 real commits from 8 open-source projects, each redone 3 times by 5 agent setups in a sandbox, judged by the
-project's own hidden tests. Pre-registered before any run, and every record is public.</p>
+project's own hidden tests. Pre-registered and frozen before the main run (after a ${pilot_usd:.2f} pilot), and every record is public.</p>
 <div class="facts">
 <div><b>{n_runs}</b>agent runs</div><div><b>8 · 56</b>repos · commits</div><div><b>${total_usd:,.0f}</b>total cost, at list prices</div><div><b>3 of 5</b>comparisons with a finding</div>
 </div>
@@ -222,14 +275,14 @@ below 0.05, and its direction holds in at least 5 of the 6+ repos. Everything el
 <thead><tr><th>Setup</th><th>Primary measure</th><th>Solved (95% CI)</th><th>$ per solved task</th><th>$ per attempt</th><th>Tokens per attempt</th><th>Repos in the same direction</th><th>Holm p</th><th>Result</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 <p class="legend">Changes are relative to the baseline, with 95% intervals from a bootstrap over repos and then commits. Dollars are each run's
-tokens priced at Anthropic's and OpenAI's published prices.</p>
+tokens priced at Anthropic's and OpenAI's published prices. Solve-rate intervals are Wilson intervals over runs, which ignore that runs of one repo are alike, so they are too narrow.</p>
 
 <h2>How it was done</h2>
 <ul>
 <li><b>Repos</b>, picked by a rule written before any run: {repos}. pydantic was replaced by the first reserve, litestar, under that rule, because it now builds its core from Rust source.</li>
-<li><b>Commits:</b> the first 7 per repo after every model's training cutoff (2026-07-01) whose tests fail before the change and pass after it, twice each. Every candidate checked is listed, with its fingerprint.</li>
+<li><b>Commits:</b> the first 7 per repo committed on or after every model's training cutoff (2026-07-01) whose tests fail before the change and pass after it, twice each. 10 of the 56 were written before that date; see below. Every candidate checked is listed, with its fingerprint.</li>
 <li><b>Task:</b> the commit message plus the names the hidden tests import. The commit's own tests decide, and any edits an agent makes to them are undone first.</li>
-<li><b>Sandbox:</b> each run starts from a fresh copy without git history. The only network is the model's API.</li>
+<li><b>Sandbox:</b> each run starts from a fresh copy without git history. While the agent works, the only network is the model's API (plus localhost, for the project's own test servers).</li>
 <li><b>Setups:</b> Claude Code 2.1.287 on Sonnet 5.5, Haiku 5.5 or Opus 5.5; Codex 0.159.2 on gpt-6.1-sol; RTK 0.51.0 on Sonnet 5.5.
 Fresh-session pairs: task 1 in a session, then task 2 either continued or started fresh with a one-line summary.</li>
 <li><b>Statistics:</b> 5 primary comparisons, Holm-corrected, with a headline only if the direction holds in at least 5 of the 6+ repos. The pre-registration is
@@ -246,15 +299,23 @@ Fresh-session pairs: task 1 in a session, then task 2 either continued or starte
 <li>imports from a folder;</li>
 <li>dependencies pinned to GitHub commits.</li>
 </ul></li>
-<li><b>The $1.95 pilot found that Claude Code shows Haiku 5.5 runs at about 27× the published price.</b> Every run is priced from its tokens at the published prices. The author's Anthropic bill confirms those prices: billed at Claude Code's displayed rate, the 168 Haiku runs would have cost about $73 instead of $2.69, and the account balance shows no such charge. Claude Code's cost display for Haiku 5.5 (version 2.1.287) is wrong; the bill isn't.</li>
+<li><b>The ${pilot_usd:.2f} pilot found that Claude Code shows Haiku 5.5 runs at about 27× the published price.</b> Every run is priced from its tokens at the published prices. The author's Anthropic bill confirms those prices: billed at Claude Code's displayed rate, the {haiku[0]} Haiku runs would have cost about ${haiku[1]:.0f} instead of ${haiku[2]:.2f}, and the account balance shows no such charge. Claude Code's cost display for Haiku 5.5 (version 2.1.287) is wrong; the bill isn't.</li>
 <li><b>During the run, both accounts ran out of credit once.</b> Interrupted runs were redone. Codex's quota error was at first misread as aimpg's own failure, which wrongly excluded 2 commits; that was repaired before the analysis. The original file is published.</li>
+<li><b>Found in a review after the analysis: 10 of the 56 commits were written before the cutoff.</b> The rule says "authored on or after
+2026-07-01", but the selection compared the date each commit was <i>committed</i>. All 7 homebridge commits and 3 click commits were written
+in May or June and merged in July, so the models could have seen that code. Without those 10 commits, every result keeps its direction and its
+finding status:
+<div class="tablewrap"><table>
+<thead><tr><th>Setup</th><th>Primary measure</th><th>Change (95% CI)</th><th>Repos in the same direction</th><th>Result</th></tr></thead>
+<tbody>{sens}</tbody></table></div></li>
 </ul>
 <p>All of these are dated in the pre-registration's change and deviation lists.</p>
 
 <h2>Check it yourself</h2>
 <ul>
-<li><b>Raw data:</b> <a href="data/">every run record</a> (outcome, tokens per request, cost and time), the <a href="data/selection/">selection lists</a> and <a href="data/report.json">the analysis output</a>.</li>
-<li><b>Rerun any comparison on your machine:</b> <code>aimpg verify --rerun &lt;record&gt; --repo &lt;clone&gt;</code>. Independent reruns appear as <b>Reproduced</b> on the <a href="../">scoreboard</a>.</li>
+<li><b>Raw data:</b> <a href="data/">every run record</a> (outcome, tokens per request, cost and time), the selection lists, the pilot runs and <a href="data/report.json">the analysis output</a>.</li>
+<li><b>Recompute every number, for free:</b> download <a href="data/">the data folder</a> and run <code>aimpg study report plan.json --runs .</code> in it.</li>
+<li><b>Rerun a comparison on your own machine:</b> the Haiku-vs-Sonnet results for click, starlette and axios are public records on the <a href="../">scoreboard</a>; rerun one with <code>aimpg verify --rerun &lt;record&gt; --repo &lt;clone&gt;</code> (about $2–3 of API credit). Reruns by other people appear as <b>Reproduced</b>. The whole study reruns with <code>aimpg study run plan.json</code>.</li>
 <li><b>Code:</b> <a href="{REPO_URL}">aimpg</a> (MIT), with <code>aimpg/replay/study.py</code> for the statistics.</li>
 </ul>
 
@@ -280,7 +341,11 @@ def main(out: Path) -> None:
             d = json.loads(line)
             if "cost_usd" in d and d.get("outcome") != "account_error":
                 total += d["cost_usd"]
-    (out / "index.html").write_text(page(report, sel, urls, n, total))
+    hk = [d for p in (STATE / "runs").glob("*.jsonl") for d in records(p)
+          if d.get("setup") == "claude-code@haiku" and "cost_usd" in d and d.get("outcome") != "account_error"]
+    haiku = (len(hk), sum((d.get("extra") or {}).get("agent_reported_cost_usd") or 0 for d in hk), sum(d["cost_usd"] for d in hk))
+    pilot_usd = sum(d.get("cost_usd") or 0 for d in records(STATE / "pilot" / "litestar.jsonl"))
+    (out / "index.html").write_text(page(report, sel, urls, n, total, sens_rows(sensitivity()), haiku, pilot_usd))
     shutil.copyfile(HERE / "og" / "og.png", out / "og.png")  # link-preview image, made from og/og.html
     print(f"wrote {out / 'index.html'} ({n} run records, ${total:.2f})")
 
