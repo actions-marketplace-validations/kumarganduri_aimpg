@@ -13,9 +13,10 @@ under it; the workdir is re-allowed. Added for replays:
   $HOME (Claude Code, uv, node), found by resolving the binaries.
 
 Linux: the same policy through bubblewrap (adapted from Legwork's
-`_bwrap_args`): the system read-only; home folders, /tmp, /var/tmp and /run
-replaced by empty private tmpfs (so other runs, the answer repo and local
-sockets such as the SSH agent are gone); only this run's folders bound back
+`_bwrap_args`): the system read-only; home folders, mounted drives (/mnt,
+/media, /srv), /tmp, /var/tmp and /run replaced by empty private tmpfs (so
+other runs, the answer repo, other disks and local sockets such as the SSH
+agent are gone); only this run's folders bound back
 writable, the agent's install folders read-only. Every namespace is
 unshared, network included. The allowlisting proxy can't be reached as a
 host port from a private network namespace, so it also listens on a Unix
@@ -118,26 +119,39 @@ def _bwrap_probe() -> str | None:
     return None if r.returncode == 0 else (r.stderr.strip() or f"exit {r.returncode}")
 
 
+# Homebrew on Linux keeps its whole prefix (its own ld.so and libraries) under /home, which the sandbox hides
+LINUXBREW = Path("/home/linuxbrew/.linuxbrew")
+
+
 def tool_dirs(tools: tuple[str, ...] = TOOLS) -> list[Path]:
     """Install folders of the agent/toolchain that live under $HOME (read-only grants).
 
     For a binary in some `bin/`, its package root (one level up) is granted so
     node/npm can read their libraries, but never $HOME or ~/.local themselves:
-    uv sits directly in ~/.local/bin, and ~/.local holds other apps' data.
+    uv sits directly in ~/.local/bin, and ~/.local holds other apps' data. A
+    `bin/` directly in a folder of $HOME (~/.cargo/bin, ~/go/bin, ~/.bun/bin) is
+    granted alone: ~/.cargo holds the crates.io token, ~/go other projects' code.
+    Paths are normalized first, so a `../../bin/x` program can't grant `/`
+    (security review 2026-10-25).
     """
     home = Path.home().resolve()
     too_broad = {home, home / ".local", home / ".local" / "share"}
     found: set[Path] = set()
+    brewed = False
     for name in tools:
         which = shutil.which(name)
         if not which:
             continue
-        for p in (Path(which).absolute(), Path(which).resolve()):
+        for p in (Path(os.path.abspath(which)), Path(which).resolve()):
             d = p.parent
-            if d.name in ("bin", "versions") and d.parent not in too_broad:
+            if d.name in ("bin", "versions") and d.parent not in too_broad and d.parent.parent != home:
                 d = d.parent
-            if str(d).startswith(str(home) + os.sep) and d not in too_broad:
+            if d.is_relative_to(home) and d not in too_broad:
                 found.add(d)
+            brewed = brewed or p.is_relative_to(LINUXBREW)
+    brewed = brewed or Path(sys.base_prefix).resolve().is_relative_to(LINUXBREW)  # the Linux relay's Python
+    if brewed and LINUXBREW.is_dir():
+        found.add(LINUXBREW.resolve())
     uv_python = home / ".local/share/uv/python"
     if uv_python.is_dir():
         found.add(uv_python.resolve())
@@ -166,7 +180,7 @@ class Profile:
     def render(self) -> str:
         home = str(Path.home().resolve())
         writable = [_profile_path(p) for p in self.writable]
-        readable = [_profile_path(p) for p in self.readable]
+        readable = [_profile_path(_grant(p)) for p in self.readable]
         deny_roots = [_profile_path(p) for p in self.deny_roots]
         shared = [d for d in SHARED_AREAS if os.path.isdir(d)]
         lines = [
@@ -214,7 +228,9 @@ class Profile:
 def bwrap_args(profile: Profile, cwd: Path) -> list[str]:
     """Linux equivalent of Profile.render (see the module docstring)."""
     home = Path.home().resolve()
-    hidden = sorted({p for p in (Path("/home"), Path("/root"), home) if p.is_dir()}, key=lambda p: len(p.parts))
+    # other people's files and mounted drives (on WSL /mnt/c is the Windows home), like /Users and /Volumes on macOS
+    hidden = sorted({p for p in (Path("/home"), Path("/root"), home, *map(Path, LINUX_DRIVES)) if p.is_dir() and not p.is_symlink()},
+                    key=lambda p: len(p.parts))
     args = [_launcher("bwrap") or "/usr/bin/bwrap", "--unshare-all", "--die-with-parent", "--new-session",
             "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
             "--tmpfs", "/tmp", "--tmpfs", "/var/tmp", "--tmpfs", "/run"]
@@ -227,7 +243,7 @@ def bwrap_args(profile: Profile, cwd: Path) -> list[str]:
         if r.is_dir() and not any(r == h or h in r.parents for h in (*hidden, Path("/tmp"), Path("/var/tmp"))):
             args += ["--tmpfs", str(r)]
     for d in profile.readable:
-        d = Path(d).resolve()
+        d = _grant(d)
         if d.exists():
             args += ["--ro-bind", str(d), str(d)]
     if profile.proxy_socket is not None:
@@ -288,6 +304,16 @@ sys.exit(code if code >= 0 else 128 - code)
 # (security review 2026-10-11: a setup name in a foreign record could close the string and add rules).
 _UNSAFE = re.compile(r'["\\\x00-\x1f\x7f]')
 SHARED_AREAS = ("/private/tmp", "/private/var/folders", "/Volumes", "/Users")
+LINUX_DRIVES = ("/mnt", "/media", "/srv")  # /run/media is under the private /run already
+
+
+def _grant(p) -> Path:
+    """A read-only grant, refused if it would re-expose `/`, $HOME or a hidden shared area."""
+    d = Path(p).resolve()
+    hidden = [Path.home().resolve(), *map(Path, SHARED_AREAS), *map(Path, LINUX_DRIVES), Path("/home"), Path("/root")]
+    if any(d == h or d in h.parents for h in hidden):
+        raise SandboxUnavailable(f"refusing a read grant that would expose {d}")
+    return d
 
 
 def _profile_path(p) -> str:
