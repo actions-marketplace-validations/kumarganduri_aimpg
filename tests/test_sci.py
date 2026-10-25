@@ -61,3 +61,11 @@ def test_cli_writes_the_disclosure(write_log, tmp_path, capsys):
     assert "SCI FOR AI (Consumer)" in text and "300 g CO₂e/kWh" in text
     data = json.loads(out.read_text())
     assert data["inputs"]["I_g_per_kwh"] == 300 and data["specification"].endswith("SPEC.md")
+
+
+def test_cli_rejects_a_negative_grid(capsys):
+    from aimpg.cli import main
+
+    with pytest.raises(SystemExit):
+        main(["sci", "--grid", "-100"])
+    assert "--grid can't be negative" in capsys.readouterr().err

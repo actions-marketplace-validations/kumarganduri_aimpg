@@ -18,6 +18,7 @@ Kept-status decision for a commit c, checked in order:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from dataclasses import dataclass, field
 from enum import Enum
@@ -31,6 +32,10 @@ _MIN_LINE = 4  # ignore trivial added lines like "}" or "" when matching squashe
 
 _REC = "\x1e"
 _FLD = "\x1f"
+# A commit header is a whole line: RS, a full sha, then the other fields. File
+# contents can hold RS too, but diff lines always start with +, - or a space,
+# so a line that starts with RS and a valid sha can only be a header.
+_HEADER = re.compile(f"{_REC}([0-9a-f]{{40}}(?:[0-9a-f]{{24}})?){_FLD}(\\d*){_FLD}([^{_FLD}]*){_FLD}(.*)")
 
 
 class Status(str, Enum):
@@ -164,30 +169,34 @@ def load_commits(repo: str, since: float, until: float | None = None, *, refs: l
 
 def _parse_patch_log(text: str) -> list[Commit]:
     commits: list[Commit] = []
-    for record in text.split(_REC)[1:]:
-        header, _, body = record.partition("\n")
-        sha, ts, email, subject = (header.split(_FLD) + ["", "", "", ""])[:4]
-        commit = Commit(sha=sha, ts=float(ts or 0), subject=subject, author_email=email.lower())
-        current: str | None = None
-        for line in body.split("\n"):
-            if line.startswith("diff --git "):
-                current = line.split(" b/", 1)[-1]
-                commit.files.setdefault(current, (0, 0))
-            elif current is None or line.startswith(("+++", "---")):
-                continue
-            elif line.startswith("+"):
-                a, d = commit.files[current]
-                commit.files[current] = (a + 1, d)
-                stripped = line[1:].strip()
-                if len(stripped) >= _MIN_LINE:
-                    commit.added.setdefault(current, set()).add(stripped)
-            elif line.startswith("-"):
-                a, d = commit.files[current]
-                commit.files[current] = (a, d + 1)
-                stripped = line[1:].strip()
-                if len(stripped) >= _MIN_LINE:
-                    commit.removed.setdefault(current, set()).add(stripped)
-        commits.append(commit)
+    commit: Commit | None = None
+    current: str | None = None
+    for line in text.split("\n"):
+        header = _HEADER.fullmatch(line) if line.startswith(_REC) else None
+        if header:
+            sha, ts, email, subject = header.groups()
+            commit = Commit(sha=sha, ts=float(ts or 0), subject=subject, author_email=email.lower())
+            commits.append(commit)
+            current = None
+        elif commit is None:
+            continue
+        elif line.startswith("diff --git "):
+            current = line.split(" b/", 1)[-1]
+            commit.files.setdefault(current, (0, 0))
+        elif current is None or line.startswith(("+++", "---")):
+            continue
+        elif line.startswith("+"):
+            a, d = commit.files[current]
+            commit.files[current] = (a + 1, d)
+            stripped = line[1:].strip()
+            if len(stripped) >= _MIN_LINE:
+                commit.added.setdefault(current, set()).add(stripped)
+        elif line.startswith("-"):
+            a, d = commit.files[current]
+            commit.files[current] = (a, d + 1)
+            stripped = line[1:].strip()
+            if len(stripped) >= _MIN_LINE:
+                commit.removed.setdefault(current, set()).add(stripped)
     return commits
 
 

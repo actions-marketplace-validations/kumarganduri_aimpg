@@ -27,6 +27,15 @@ from aimpg.replay import verify as verify_mod
 REPORT_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
 
 
+def _version() -> str:
+    from importlib import metadata
+
+    try:
+        return metadata.version("aimpg")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def _common(p: argparse.ArgumentParser, days: int) -> None:
     p.add_argument("--days", type=int, default=days, help=f"window size in days (default {days})")
     p.add_argument("--logs", type=Path, default=DEFAULT_ROOT, help="Claude Code projects dir")
@@ -54,6 +63,7 @@ def _analyze(args):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aimpg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--version", action="version", version=f"aimpg {_version()}")
     sub = parser.add_subparsers(dest="command", required=True)
     report_p = sub.add_parser("report", help="print the energy receipt")
     _common(report_p, 30)
@@ -95,8 +105,9 @@ def main(argv: list[str] | None = None) -> int:
 
     live = sub.add_parser("live", help="live status line + post-commit note inside Claude Code")
     live.add_argument("action", choices=("install", "uninstall"))
-    sub.add_parser("statusline", help=argparse.SUPPRESS)  # called by Claude Code
-    hook = sub.add_parser("hook", help=argparse.SUPPRESS)  # called by Claude Code
+    # no help=: argparse then leaves them out of --help (help=SUPPRESS would print "==SUPPRESS==")
+    sub.add_parser("statusline")  # called by Claude Code
+    hook = sub.add_parser("hook")  # called by Claude Code
     hook.add_argument("event", choices=("post-commit",))
 
     replay_cli.add_parser(sub)
@@ -106,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     from aimpg.replay import study_cli
 
     study_cli.add_parser(sub)
+    sub.metavar = "{" + ",".join(a.dest for a in sub._choices_actions) + "}"  # the public commands only
     args = parser.parse_args(argv)
     if args.command == "replay":
         return replay_cli.main(args)
@@ -155,10 +167,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.days <= 0:
         parser.error("--days must be positive")
+    if getattr(args, "grid", None) is not None and args.grid < 0:
+        parser.error("--grid can't be negative")
     from aimpg import codex_logs
     from aimpg.cursor_usage import CursorExportError
 
-    if not (args.logs.is_dir() or args.cursor_usage or (args.codex_logs or codex_logs.DEFAULT_ROOT).is_dir()):
+    # an existing but empty folder (a fresh Claude Code install) gets the same help as a missing one
+    if not (args.cursor_usage or next(iter_log_files(args.logs), None) or next(codex_logs.iter_files(args.codex_logs), None)):
         codex_root = args.codex_logs or codex_logs.DEFAULT_ROOT
         print(f"No AI coding logs found (looked for Claude Code in {args.logs} and Codex in {codex_root}).\n"
               "  Logs somewhere else?  aimpg report --logs DIR   or   aimpg report --codex-logs DIR\n"
@@ -171,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     try:
         parsed, attribution, since, now = _analyze(args)
-    except (CursorExportError, UnicodeDecodeError) as exc:
+    except CursorExportError as exc:
         print(f"Can't read the Cursor export: {exc}")
         return 1
 
@@ -221,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "sci":
         from aimpg import sci
 
-        ledger.record(task_energy(attribution.tasks))
-        judged = durable.judge(ledger.load(), now)
+        ledger.record(task_energy(attribution.tasks), ledger.LEDGER)
+        judged = durable.judge(ledger.load(ledger.LEDGER), now)
         in_window = [r for r in parsed.requests if r.ts >= since]
         result = sci.compute(in_window, len(attribution.tasks), judged,
                              grid=args.grid if args.grid is not None else sci.default_grid(), period=(since, now))
@@ -232,8 +247,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\nFull disclosure (boundary, inputs, sources, ranges): {args.json}")
         return 0
 
-    ledger.record(task_energy(attribution.tasks))
-    judged = durable.judge(ledger.load(), now)
+    # LEDGER passed explicitly: the defaults are bound at import, so a patched LEDGER (tests) would be ignored
+    ledger.record(task_energy(attribution.tasks), ledger.LEDGER)
+    judged = durable.judge(ledger.load(ledger.LEDGER), now)
     sys.stdout.write(render(parsed, attribution, since, now, judged))
     if args.share:
         from aimpg import card
@@ -243,6 +259,9 @@ def main(argv: list[str] | None = None) -> int:
             svg_path, png_path = card.write(n, args.share)
         except Exception as exc:  # the receipt above is already printed; a renderer problem must not hide it
             svg_path, png_path = args.share.with_suffix(".svg"), None
+            if not svg_path.is_file():
+                print(f"\nCouldn't write the share card: {exc}")
+                return 1
             print(f"\n(Couldn't render the PNG: {exc}; the SVG is still written.)")
         print(f"\nShare card: {png_path or svg_path} (totals only: no repo names, commit messages or code)")
         print(f"Post text:  {card.post_text(n)}")
