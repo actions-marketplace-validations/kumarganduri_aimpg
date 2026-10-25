@@ -16,7 +16,8 @@ from pathlib import Path
 LEDGER = Path.home() / ".aimpg" / "ledger.json"
 
 
-def load(path: Path = LEDGER) -> dict[str, dict]:
+def load(path: Path | None = None) -> dict[str, dict]:
+    path = path or LEDGER  # looked up at call time so tests can point it elsewhere
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError):
@@ -27,8 +28,9 @@ def key(repo: str, sha: str) -> str:
     return f"{repo}|{sha}"
 
 
-def record(energies, path: Path = LEDGER) -> int:
+def record(energies, path: Path | None = None) -> int:
     """Upsert one line per commit from receipt.task_energy(...). Returns how many changed."""
+    path = path or LEDGER
     data = load(path)
     changed = 0
     now = time.time()

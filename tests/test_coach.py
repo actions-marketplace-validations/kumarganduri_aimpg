@@ -51,6 +51,11 @@ def test_tips_are_ranked_by_money_saved():
 
 def test_fresh_session_is_no_longer_offered_as_a_saving():
     # Report No. 1 measured a fresh session costing 13% more for the next task
-    from aimpg.coach import STUDY_FRESH
+    from aimpg.coach import STUDY_FRESH, carried_share
 
+    requests, attribution = session_with_commit()
+    fresh = fresh_session_tip(requests, attribution)
+    assert fresh is not None  # this session would have earned the old tip...
+    assert all(t.title != fresh.title for t in tips(requests, attribution))  # ...but tips() never offers it
+    assert carried_share(requests, attribution) == pytest.approx(int(fresh.measured.split("%")[0]) / 100)
     assert "13% more" in STUDY_FRESH

@@ -46,7 +46,8 @@ def parse_ts(value: str | None) -> float | None:
         return None
 
 
-def iter_log_files(root: Path = DEFAULT_ROOT) -> Iterator[Path]:
+def iter_log_files(root: Path | None = None) -> Iterator[Path]:
+    root = root or DEFAULT_ROOT  # looked up at call time so tests can point it elsewhere
     if not root.is_dir():
         return
     # rglob also matches directories and dangling symlinks named *.jsonl

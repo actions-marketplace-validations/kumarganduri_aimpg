@@ -441,7 +441,8 @@ def planned_settings(current: dict, exe: str | list[str]) -> dict:
     return new
 
 
-def install(settings: Path = SETTINGS, exe: str | list[str] = "aimpg", *, confirm=input) -> str:
+def install(settings: Path | None = None, exe: str | list[str] = "aimpg", *, confirm=input) -> str:
+    settings = settings or SETTINGS  # looked up at call time so tests can point it elsewhere
     current = _load_settings(settings)
     line = current.get("statusLine") or {}
     existing = str(line.get("command", ""))
@@ -474,7 +475,8 @@ def install(settings: Path = SETTINGS, exe: str | list[str] = "aimpg", *, confir
     return "Installed. It shows up after the next AI message. Undo any time with `aimpg live uninstall`."
 
 
-def uninstall(settings: Path = SETTINGS) -> str:
+def uninstall(settings: Path | None = None) -> str:
+    settings = settings or SETTINGS
     if not settings.exists():
         return "Nothing to remove."
     current = _load_settings(settings)
