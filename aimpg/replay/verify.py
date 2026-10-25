@@ -26,6 +26,7 @@ import json
 import re
 import os
 import secrets
+import shlex
 import subprocess
 import time
 from dataclasses import asdict
@@ -35,6 +36,7 @@ from pathlib import Path
 from aimpg.cost import load_prices
 from aimpg.energy import ZERO, WhRange, load_factors, request_wh
 from aimpg.model import Request, Usage
+from aimpg.replay import sandbox
 from aimpg.replay import setups as S
 from aimpg.replay import stats
 from aimpg.replay.run import Record
@@ -189,10 +191,14 @@ def _pkg_version() -> str:
 def _remote(repo: str) -> str | None:
     proc = subprocess.run(["git", "-C", repo, "remote", "get-url", "origin"], capture_output=True, text=True)
     url = proc.stdout.strip()
-    if "@" in url.split("//")[-1].split("/")[0]:  # strip credentials from https://user:token@host
-        scheme, _, rest = url.partition("//")
-        url = scheme + "//" + rest.split("@", 1)[1]
-    return url or None
+    if not url:
+        return None
+    if "//" not in url:  # scp-style git@github.com:owner/repo.git: the https form anyone can clone
+        m = re.fullmatch(r"(?:[^@/]+@)?([^@/:]+):(.+)", url)
+        return f"https://{m[1]}/{m[2].lstrip('/')}" if m else url
+    scheme, _, rest = url.partition("//")
+    host, slash, path = rest.partition("/")
+    return scheme + "//" + host.rsplit("@", 1)[-1] + slash + path  # strip credentials from https://user:token@host
 
 
 # Texts that can hold internal details (a CLAUDE.md, a prompt, a command line,
@@ -220,7 +226,7 @@ def _repo_id(repo: str) -> str | None:
 
 def build_record(records: list[Record], *, claim: str, baseline: S.Setup, challenger: S.Setup, repo: str,
                  task_mode: str, public: bool, extra: dict | None = None,
-                 attempts: list[Record] | None = None, excluded: set[str] | None = None) -> dict:
+                 attempts: list[Record] | None = None, excluded: set[str] | None = None, remote: str | None = None) -> dict:
     salt = secrets.token_bytes(16)  # never stored: hashes are consistent within a record only
 
     def hide(text: str) -> str:
@@ -239,7 +245,7 @@ def build_record(records: list[Record], *, claim: str, baseline: S.Setup, challe
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "claim": claim,
         "public": public,
-        "repo": _remote(repo) if public else hide(os.path.realpath(repo)),
+        "repo": (remote or _remote(repo)) if public else hide(os.path.realpath(repo)),
         "repo_id": _repo_id(repo),  # keyed with a local secret: lets the scoreboard count repos
         "task_mode": task_mode,
         "versions": _versions(),
@@ -327,6 +333,14 @@ def setup_from_spec(spec: dict) -> S.Setup:
     if agent == "cmd":
         if not spec.get("command"):
             raise VerifyError(f"{name}: the record keeps only a hash of the command (not --public)")
+        # Someone else's command runs only a program found on your PATH: a path in it could
+        # widen the sandbox's read grants or run a file of theirs (security review 2026-10-25)
+        try:
+            program = (shlex.split(spec["command"]) or [""])[0]
+        except (TypeError, AttributeError, ValueError):
+            raise S.SetupUnavailable(f"{name}: not a command line") from None
+        if "/" in program or "\\" in program:
+            raise S.SetupUnavailable(f"{name}: a record's command must start with a program name, not a path: {program[:80]!r}")
         return S.command(spec["command"], spec.get("hosts", []), spec.get("key_env", ""), name=name)
     if spec.get("rtk"):
         return S.RTK
@@ -361,12 +375,12 @@ def add_parser(sub) -> None:
     c = v.add_argument_group("any agent command (cmd:)")
     c.add_argument("--hosts", default="", help="comma list of API hosts it may reach, e.g. api.openai.com")
     c.add_argument("--key-env", default="", help="env var holding its API key (passed through from your shell)")
-    v.add_argument("--commits", type=int, default=10)
+    v.add_argument("--commits", type=int, default=10, help="commits to rerun (default 10)")
     v.add_argument("--order", choices=("random", "first"), default="random",
                    help="which qualifying commits: a fixed random sample (default) or the first N after the cutoff (studies)")
     v.add_argument("--any-author", action="store_true", help="include everyone's commits (studies on public repos)")
     v.add_argument("--cutoff", default="2026-07-01", help="skip commits before the models' training cutoff (YYYY-MM-DD)")
-    v.add_argument("--repeats", type=int, default=2)
+    v.add_argument("--repeats", type=int, default=2, help="runs per commit per setup (default 2)")
     v.add_argument("--cap", type=float, default=15.0, help="total USD cap (default 15)")
     v.add_argument("--per-run-budget", type=float, default=2.0, help="USD cap per Claude Code run (default 2)")
     v.add_argument("--batch-model", default="claude-sonnet-5-5", help="model for setups that don't name one")
@@ -386,7 +400,7 @@ def main(args) -> int:
         if args.check:
             return _check(args.check)
         return _run(args)
-    except (VerifyError, S.SetupUnavailable) as exc:
+    except (VerifyError, S.SetupUnavailable, sandbox.SandboxUnavailable) as exc:
         print(f"verify: {exc}")
         return 1
 
@@ -419,6 +433,17 @@ def _challenger(args) -> S.Setup:
     if not args.challenger:
         raise VerifyError("say what to test: --challenger NAME, or --append-prompt/--claude-md/--settings/--model")
     return setup_from(args.challenger, hosts=hosts, key_env=args.key_env)
+
+
+def _keys(setups: list[S.Setup]) -> dict[str, str]:
+    keys = {}
+    for s in setups:
+        if s.key_env:
+            value = os.environ.get(s.key_env, "")
+            if not value:
+                raise VerifyError(f"set {s.key_env} in your shell first ({s.name} needs it). aimpg never stores it.")
+            keys[s.key_env] = value
+    return keys
 
 
 def describe_foreign(record: dict) -> str:
@@ -467,6 +492,9 @@ def _run(args) -> int:
     repo = args.repo.expanduser().resolve()
     if not (repo / ".git").exists():
         raise VerifyError(f"{repo} is not a git repo (or doesn't exist). Pass --repo with your project's folder.")
+    reason = sandbox.unavailable_reason()
+    if reason:  # before any question: every step runs sandboxed
+        raise VerifyError(f"can't sandbox the runs on this machine: {reason}")
     prior, selection = None, {}
     if args.rerun:
         prior = json.loads(args.rerun.read_text())
@@ -497,32 +525,39 @@ def _run(args) -> int:
         if baseline.name == challenger.name:
             raise VerifyError("the challenger is the same as the baseline")
         task_mode, claim, repeats = args.task_mode, args.claim, args.repeats
+        if args.commits < 1 or args.repeats < 1:
+            raise VerifyError("--commits and --repeats must be at least 1")
+        _keys([baseline, challenger])  # before the (slow, free) selection
         selected = replay_cli._state(repo) / "selected.jsonl"
-        if not selected.exists():
+        manifest_path = selected.with_name("selected.manifest.json")
+        commits = select.load(selected) if selected.exists() else []
+        earlier = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+        if commits and (earlier.get("cutoff", args.cutoff), earlier.get("any_author", args.any_author)) == (args.cutoff, args.any_author):
+            print(f"Using the {len(commits)} commits selected earlier (delete {selected} to select again).")
+        else:  # none yet, none found last time, or chosen by another --cutoff/--any-author
             print("Finding commits whose tests can judge a rerun (free, no AI calls)…")
             import argparse
 
             replay_cli._select(repo, argparse.Namespace(days=120, cutoff=args.cutoff, max=max(30, args.commits),
                                                         any_author=args.any_author))
-        commits = select.load(selected) if selected.exists() else []
+            commits = select.load(selected) if selected.exists() else []
         if len(commits) < args.commits:
             raise VerifyError(f"only {len(commits)} replayable commits in {repo}; need {args.commits} (try --commits {len(commits)})"
                               if commits else f"no replayable commits in {repo} (see `aimpg replay select`)")
         import random
 
         chosen = commits[: args.commits] if args.order == "first" else random.Random(7).sample(commits, args.commits)
-        manifest_path = selected.with_name("selected.manifest.json")
         selection = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
         selection.update(order=args.order, chosen=[c.sha for c in chosen])
 
     setups = [baseline, challenger]
-    keys = {}
-    for s in setups:
-        if s.key_env:
-            value = os.environ.get(s.key_env, "")
-            if not value:
-                raise VerifyError(f"set {s.key_env} in your shell first ({s.name} needs it). aimpg never stores it.")
-            keys[s.key_env] = value
+    keys = _keys(setups)
+    public = args.public or prior is not None
+    remote = None
+    if public:  # checked now: a record that can't be written must fail before the paid runs, not after
+        remote = _remote(str(repo)) or (prior or {}).get("repo")
+        if not remote:
+            raise VerifyError(f"--public needs {repo}'s origin remote, so others can clone it (git remote add origin URL)")
 
     n = len(chosen) * repeats * len(setups)
     print(f"Claim: {claim or challenger.name + ' is more efficient than ' + baseline.name}")
@@ -547,16 +582,21 @@ def _run(args) -> int:
                                         f"{'$%.2f' % r.cost_usd if r.cost_known else '$?':>6}  {r.wall_s:.0f}s"))
     if batch.stopped:
         print(f"STOPPED EARLY: an account can't make calls ({batch.stopped}). Fix it, then rerun with --resume {results}")
-    records, excluded = runner.load_results(results)
-    # A rerun of a scoreboard upload names it by the upload's SHA-256 (its file name there)
-    rerun_of = hashlib.sha256(args.rerun.read_bytes()).hexdigest() if prior and prior.get("aimpg_upload") else None
-    record = build_record(records, claim=claim, baseline=baseline, challenger=challenger, repo=str(repo),
-                          task_mode=task_mode, public=args.public if not prior else True,
-                          attempts=runner.all_attempts(results), excluded=excluded,
-                          extra={**({"rerun_of": rerun_of} if rerun_of else {}),
-                                 **({"selection": _selection_view(selection, args.public)} if not prior and selection else {})} or None)
     out = results.with_suffix(".record.json")
-    out.write_text(json.dumps(record, indent=1))
+    try:
+        records, excluded = runner.load_results(results)
+        # A rerun of a scoreboard upload names it by the upload's SHA-256 (its file name there)
+        rerun_of = hashlib.sha256(args.rerun.read_bytes()).hexdigest() if prior and prior.get("aimpg_upload") else None
+        record = build_record(records, claim=claim, baseline=baseline, challenger=challenger, repo=str(repo),
+                              task_mode=task_mode, public=public, remote=remote,
+                              attempts=runner.all_attempts(results), excluded=excluded,
+                              extra={**({"rerun_of": rerun_of} if rerun_of else {}),
+                                     **({"selection": _selection_view(selection, args.public)} if not prior and selection else {})} or None)
+        out.write_text(json.dumps(record, indent=1))
+    except Exception as exc:  # the paid runs are already in the results file: never lose them to a traceback
+        print(f"verify: writing the record failed ({type(exc).__name__}: {exc}). The runs are saved in {results};"
+              f" run the same command again with --resume {results} to write it (finished runs aren't redone).")
+        return 1
     print()
     print(render(record["verdict"], claim, baseline.name, challenger.name))
     if prior:
