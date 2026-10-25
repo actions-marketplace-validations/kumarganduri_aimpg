@@ -41,7 +41,8 @@ def note_for(e) -> dict:
     """e: receipt.TaskEnergy."""
     return {"aimpg_note": NOTE_VERSION, "usd": round(e.usd + e.lead_up_usd, 2),
             "wh": [round(e.total.low, 1), round(e.total.high, 1)],
-            "requests": round(sum(e.task.weights) + sum(e.task.lead_up_weights)), "tier": e.task.attribution}
+            "requests": round(sum(e.task.weights) + sum(e.task.lead_up_weights)), "tier": e.task.attribution,
+            "seen_requests": len(e.task.requests) + len(e.task.lead_up)}  # unweighted, for "keep the fuller one"
 
 
 def read_notes(repo: str | Path) -> dict[str, dict]:
@@ -94,7 +95,7 @@ def write_notes(repo: str, energies, *, author: str | None = None) -> tuple[int,
             continue
         note = note_for(e)
         old = existing.get(e.task.sha)
-        if old == note or (old and old.get("requests", 0) > note["requests"]):  # keep the fuller one
+        if old == note or (old and old.get("seen_requests", old.get("requests", 0)) > note["seen_requests"]):  # keep the fuller one
             continue
         _git(repo, "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", "-", e.task.sha, stdin=json.dumps(note, sort_keys=True))
         written += 1

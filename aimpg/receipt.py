@@ -100,13 +100,14 @@ def working_changes(judged) -> list[str]:
     # Judged from aimpg's whole history (the ledger), not just this window: a
     # commit can only be judged 30 days after it was made.
     records = judged.judged + judged.too_new + judged.unreadable
-    started = min((r.get("first_seen", r["ts"]) for r in records), default=None)
+    started = min((r["ts"] for r in records), default=None)  # the oldest commit judged, not when aimpg first saw it
     lines = ["WORKING CHANGES (commits that shipped and lasted 30 days"
              + (f"; all history since {day(started)}, not just this window)" if started else ")")]
     if judged.unreadable:
         why = "; ".join(f"{Path(repo).name}: {err.splitlines()[0][:80] if err else 'git error'}"
                         for repo, err in sorted(judged.errors.items()))
-        lines.append(f"  {len(judged.unreadable)} commits in repos aimpg couldn't read are left out ({why})")
+        n = len(judged.unreadable)
+        lines.append(f"  {n} commit{'s' if n != 1 else ''} in repos aimpg couldn't read {'are' if n != 1 else 'is'} left out ({why})")
     if not judged.judged:
         first = judged.first_judgeable()
         when = f" on {day(first + MATURE_AFTER)}" if first else " once your AI-assisted commits are 30 days old"

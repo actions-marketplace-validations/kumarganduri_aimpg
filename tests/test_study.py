@@ -113,3 +113,17 @@ def test_fewer_than_six_repos_never_make_a_headline():
     c = compare(study(repos=1, chal_cost=0.3), "base", "chal")
     holm([c])
     assert c.p_holm is not None and c.p_holm < 0.05 and not c.headline
+
+
+def test_study_stops_cleanly_without_a_sandbox(tmp_path, monkeypatch, capsys):
+    import json
+
+    from aimpg import cli
+    from aimpg.replay import sandbox
+
+    monkeypatch.setattr(sandbox, "unavailable_reason", lambda: "replays on Linux need bubblewrap")
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"name": "t", "cutoff": "2026-07-01", "commits_per_repo": 1, "repeats": 1,
+                                "baseline": "plain", "challengers": ["haiku"], "repos": []}))
+    assert cli.main(["study", "select", str(plan)]) == 1
+    assert "bubblewrap" in capsys.readouterr().out

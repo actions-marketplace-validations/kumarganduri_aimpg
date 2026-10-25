@@ -102,7 +102,7 @@ def test_repo_git_cannot_read_is_left_unjudged(repo, tmp_path):
 def test_working_changes_say_they_cover_all_history(repo):
     sha = repo.commit({"good.py": LINES}, "feat: good", days_ago(40))
     j = durable.judge({"k": {**rec(repo, sha, days_ago(40)), "first_seen": days_ago(35)}})
-    assert f"all history since {durable.day(days_ago(35))}, not just this window" in working_changes(j)[0]
+    assert f"all history since {durable.day(days_ago(40))}, not just this window" in working_changes(j)[0]
 
 
 def test_ledger_counts_a_split_session_once_not_once_per_commit(tmp_path):
@@ -116,3 +116,21 @@ def test_ledger_counts_a_split_session_once_not_once_per_commit(tmp_path):
         t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), 0.25)  # a session split four ways
     ledger.record([TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=0.1)], path)
     assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 2
+
+
+def test_a_session_split_further_later_still_counts_once(tmp_path):
+    # Run 1 sees a $10 session on commit A only; run 2 sees it split between A and B. The ledger must hold $10, not $15.
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy
+
+    def te(sha, share, usd):
+        t = Task("/r", sha, 1.0, "s", "fuzzy", "kept", author="a")
+        for i in range(10):
+            t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), share)
+        return TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=usd)
+
+    path = tmp_path / "ledger.json"
+    ledger.record([te("A", 1.0, 10.0)], path)
+    ledger.record([te("A", 0.5, 5.0), te("B", 0.5, 5.0)], path)
+    assert sum(r["usd"] for r in ledger.load(path).values()) == pytest.approx(10.0)

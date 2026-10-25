@@ -213,3 +213,14 @@ def test_status_line_survives_odd_input(tmp_path, monkeypatch, capsys):
         assert live.run_statusline() == 0
     assert capsys.readouterr().out.splitlines()[-1].startswith("⚡ task $")
     assert SessionState.load("S").offset == t.stat().st_size  # moved past the odd row
+
+
+def test_uvx_run_says_which_installed_aimpg_claude_code_will_call(tmp_path, monkeypatch):
+    exe = tmp_path / "bin" / "aimpg"
+    exe.parent.mkdir()
+    exe.write_text("#!/bin/sh\n")
+    exe.chmod(0o755)
+    monkeypatch.setenv("PATH", str(exe.parent))
+    monkeypatch.setattr(live, "_ephemeral", lambda path: path != str(exe))  # this copy is uvx's, the one on PATH isn't
+    cmd, note = live.launcher()
+    assert cmd == [str(exe)] and str(exe) in note and "uv tool upgrade aimpg" in note

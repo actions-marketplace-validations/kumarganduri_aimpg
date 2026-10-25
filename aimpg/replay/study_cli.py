@@ -75,6 +75,13 @@ def _out(plan: dict) -> Path:
 
 def main(args) -> int:
     plan = load_plan(args.plan)
+    if args.study_command in ("select", "run"):
+        from aimpg.replay import sandbox
+
+        reason = sandbox.unavailable_reason()
+        if reason:  # before any work or question: every step runs sandboxed
+            print(f"Can't sandbox the study on this machine: {reason}")
+            return 1
     if args.study_command == "select":
         return _select_all(plan)
     if args.study_command == "report":

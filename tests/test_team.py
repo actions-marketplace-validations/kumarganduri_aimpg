@@ -64,7 +64,7 @@ def test_notes_go_only_on_your_own_commits_and_hold_only_metadata(tmp_path):
     assert (written, skipped) == (1, 1)
     notes = team.read_notes(ann)
     assert set(notes) == {mine}
-    assert notes[mine] == {"aimpg_note": 1, "usd": 1.0, "wh": [10.0, 100.0], "requests": 3, "tier": "exact"}
+    assert notes[mine] == {"aimpg_note": 1, "usd": 1.0, "wh": [10.0, 100.0], "requests": 3, "seen_requests": 3, "tier": "exact"}
 
 
 def test_two_developers_push_notes_without_clobbering_each_other(tmp_path):

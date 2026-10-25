@@ -517,7 +517,13 @@ def _run(args) -> int:
         raise VerifyError(f"can't sandbox the runs on this machine: {reason}")
     prior, selection = None, {}
     if args.rerun:
-        prior = json.loads(args.rerun.read_text())
+        try:
+            prior = json.loads(args.rerun.read_text())
+        except (OSError, ValueError) as exc:
+            raise VerifyError(f"can't read {args.rerun} as a verify record ({exc}); rerun a scoreboard file, "
+                              "records/<user>/<id>.json") from None
+        if not isinstance(prior, dict) or not isinstance(prior.get("runs"), list):
+            raise VerifyError(f"{args.rerun} isn't a verify record; rerun a scoreboard file, records/<user>/<id>.json")
         if not prior.get("public"):
             raise VerifyError("only --public records can be rerun (private ones hide which commits were used)")
         baseline, challenger = setup_from_spec(prior["baseline"]), setup_from_spec(prior["challenger"])

@@ -369,6 +369,9 @@ def launcher() -> tuple[list[str] | None, str]:
     for d in os.environ.get("PATH", "").split(os.pathsep):
         exe = shutil.which("aimpg", path=d) if d else None
         if exe and not _ephemeral(exe):
+            if _ephemeral(__file__):  # running from uvx, but Claude Code will call the installed copy, maybe an older one
+                return [exe], (f"Claude Code will call the aimpg installed at {exe}, not this uvx copy "
+                               f"({metadata.version('aimpg')}). If that one is older:  uv tool upgrade aimpg")
             return [exe], ""
     uvx = shutil.which("uvx")
     if uvx and not _ephemeral(uvx):
