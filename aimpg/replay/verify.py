@@ -271,6 +271,8 @@ def records_from(record: dict) -> list[Record]:
 
 def check(record: dict) -> tuple[bool, dict]:
     """Recompute the verdict from the record's own runs. (matches, recomputed)."""
+    if "aimpg_upload" in record:
+        raise VerifyError("this is a scoreboard upload, not the verify record it was made from")
     if record.get("aimpg_record") != RECORD_VERSION or record.get("kind") != "verify":
         raise VerifyError("not an aimpg verify record (or a newer version: upgrade aimpg)")
     again = verdict(records_from(record), record["baseline"]["name"], record["challenger"]["name"])
@@ -406,7 +408,10 @@ def main(args) -> int:
 
 
 def _check(path: Path) -> int:
-    record = json.loads(path.read_text())
+    data = path.read_bytes()
+    record = json.loads(data)
+    if isinstance(record, dict) and "aimpg_upload" in record:
+        return _check_upload(path, data)
     ok, again = check(record)
     problems, warnings = integrity(record)
     print(render(again, record.get("claim", ""), record["baseline"]["name"], record["challenger"]["name"]))
@@ -417,6 +422,21 @@ def _check(path: Path) -> int:
         print(f"  note: {w}")
     print("This checks the arithmetic and the record's consistency, not that the runs happened.")
     return 0 if ok and not problems else 2
+
+
+def _check_upload(path: Path, data: bytes) -> int:
+    """A scoreboard upload (records/<login>/<sha256>.json): the same checks as the scoreboard's CI,
+    whatever the file is called here."""
+    from aimpg.scoreboard import file_name, validate_upload
+
+    name = file_name(data)
+    problems = validate_upload(path.with_name(name), data)
+    print(f"Scoreboard upload {name}" + ("" if path.name == name else f" (saved here as {path.name})"))
+    print("Rechecked from its runs: " + ("CONSISTENT with its verdict." if not problems else "PROBLEMS:"))
+    for p in problems:
+        print(f"  PROBLEM: {p}")
+    print("Uploads keep rounded numbers, so this checks the verdict's rules, not every digit; it doesn't show the runs happened.")
+    return 0 if not problems else 2
 
 
 def _challenger(args) -> S.Setup:

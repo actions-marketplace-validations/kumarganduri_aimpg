@@ -53,6 +53,14 @@ ANSWERS = {"SUPPORTED", "NOT SUPPORTED", "NOT PROVEN"}
 # Setups everyone can name; anything else is published as "custom" or "cmd".
 _CATALOG = re.compile(r"^(claude-code(\+rtk|\+terse)?(@[\w.\-]+)?|codex(@[\w.\-]+)?)$")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f‎‏‪-‮⁦-⁩]")
+_PRIVATE_NAME = re.compile(r"(custom|cmd)(-[12])?")  # what _public_spec makes of a non-catalog setup
+# Every field an upload may carry (anything else could leak; privacy QA, 2026-10-25)
+UPLOAD_FIELDS = {"aimpg_upload", "kind", "week", "claim_kind", "task_mode", "public", "repo_id", "versions",
+                 "baseline", "challenger", "runs", "verdict", "superseded_attempts", "excluded_commits",
+                 "rerun_of", "affiliation", "repo"}
+RUN_FIELDS = {"commit", "setup", "repeat", "outcome", "passed", "model", "agent", "cost_known", "cost_usd",
+              "wall_s", "tokens", "wh", "requests", "tokens_check"}
+VERSION_FIELDS = {"aimpg", "factors", "prices", "claude", "codex"}
 FOOTER = ("Self-reported numbers are not audited: `aimpg verify --check` confirms the arithmetic, "
           "not that the runs happened. Only an independent rerun (Reproduced) is evidence.")
 
@@ -129,6 +137,12 @@ def _public_spec(spec: dict, public: bool) -> dict:
     return out
 
 
+def _private_repo_id(rid: str | None) -> str | None:
+    """A private upload's repo id differs from the same repo's public one, so a --public
+    upload (which names its repo) can't be joined to your private ones (privacy QA, 2026-10-25)."""
+    return hmac.new(_secret(), b"private:" + rid.encode(), hashlib.sha256).hexdigest()[:24] if rid else None
+
+
 def upload_view(record: dict, *, affiliation: str = "") -> dict:
     """What leaves the machine. A --public record keeps what a rerun needs (its owner chose that)."""
     if record.get("aimpg_record") != 1 or record.get("kind") != "verify":
@@ -146,7 +160,7 @@ def upload_view(record: dict, *, affiliation: str = "") -> dict:
         sums = [sum(getattr(u, f) for u in usages) for f in ("fresh_in", "cache_write", "cache_read", "output")]
         runs.append({
             "commit": r["commit"] if public else commits.setdefault(r["commit"], len(commits)),
-            "setup": _public_spec({"name": r["setup"], "agent": r.get("agent", "claude")}, public)["name"],
+            "setup": r["setup"],  # renamed below, like baseline and challenger
             "repeat": r["repeat"], "outcome": r["outcome"], "passed": r["passed"], "model": r["model"],
             "agent": r.get("agent", "claude"), "cost_known": r.get("cost_known", True),
             "cost_usd": round(r["cost_usd"], 2), "wall_s": int(round(r["wall_s"], -1)),
@@ -157,6 +171,12 @@ def upload_view(record: dict, *, affiliation: str = "") -> dict:
         })
     baseline, challenger = record["baseline"], record["challenger"]
     v = record["verdict"]
+    base_spec, chal_spec = _public_spec(baseline, public), _public_spec(challenger, public)
+    if base_spec["name"] == chal_spec["name"]:  # two private setups outside the catalog: keep them apart
+        base_spec["name"], chal_spec["name"] = base_spec["name"] + "-1", chal_spec["name"] + "-2"
+    names = {baseline["name"]: base_spec["name"], challenger["name"]: chal_spec["name"]}
+    for r in runs:
+        r["setup"] = names.get(r["setup"], r["setup"] if public else "custom")  # never a private name
     out = {
         "aimpg_upload": UPLOAD_VERSION,
         "kind": "verify",
@@ -164,11 +184,11 @@ def upload_view(record: dict, *, affiliation: str = "") -> dict:
         "claim_kind": claim_kind(baseline, challenger),
         "task_mode": record["task_mode"],
         "public": public,
-        "repo_id": record.get("repo_id"),
+        "repo_id": record.get("repo_id") if public else _private_repo_id(record.get("repo_id")),
         "versions": {k: (val if k in ("aimpg", "factors", "prices") else _major_minor(val))
                      for k, val in record.get("versions", {}).items() if val},
-        "baseline": _public_spec(baseline, public),
-        "challenger": _public_spec(challenger, public),
+        "baseline": base_spec,
+        "challenger": chal_spec,
         "runs": runs,
         "verdict": {"answer": v["answer"], "cost_ratio": v.get("cost_ratio"),
                     "energy": {k: v["energy"][k] for k in ("verdict", "effect_mid", "interval")} if v.get("energy") else None},
@@ -215,8 +235,24 @@ def _strings(obj):
             yield from _strings(v)
 
 
-def validate_upload(path: Path, data: bytes, *, author: str | None = None) -> list[str]:
-    """Problems with one submitted file (empty = accept). Pure data checks; nothing is executed."""
+def _number(x) -> bool:
+    """A finite int or float: not a bool, NaN or Infinity."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _count(x) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool) and x >= 0
+
+
+def _no_constant(name: str):
+    raise ValueError(f"{name} is not allowed")
+
+
+def validate_upload(path: Path, data: bytes, *, author: str | None = None, taken: dict[str, str] | None = None) -> list[str]:
+    """Problems with one submitted file (empty = accept). Pure data checks; nothing is executed.
+
+    taken: repo_id → submitter, for the records already on the scoreboard.
+    """
     problems = []
     if len(data) > MAX_BYTES:
         return [f"{path.name}: larger than {MAX_BYTES} bytes"]
@@ -225,69 +261,141 @@ def validate_upload(path: Path, data: bytes, *, author: str | None = None) -> li
     if author is not None and path.parent.name != author:
         problems.append(f"{path}: must be under records/{author}/ (the pull request's author)")
     try:
-        u = json.loads(data)
+        u = json.loads(data, parse_constant=_no_constant)
     except ValueError:
-        return problems + [f"{path.name}: not JSON"]
+        return problems + [f"{path.name}: not JSON (NaN and Infinity are not allowed)"]
     if not isinstance(u, dict) or u.get("aimpg_upload") != UPLOAD_VERSION or u.get("kind") != "verify":
         return problems + [f"{path.name}: not an aimpg upload (version {UPLOAD_VERSION})"]
+    public = u.get("public")
+    if not isinstance(public, bool):
+        problems.append("public must be true or false")
+    extra = set(u) - (UPLOAD_FIELDS if public is True else UPLOAD_FIELDS - {"repo"})
+    if extra:
+        problems.append(f"fields an upload doesn't have: {sorted(extra)}")
+    sides = u.get("baseline"), u.get("challenger")
+    runs, v = u.get("runs"), u.get("verdict")
+    if not all(isinstance(s, dict) for s in sides):
+        return problems + ["baseline and challenger must be objects"]
+    if not isinstance(runs, list) or not runs or not all(isinstance(r, dict) for r in runs):
+        return problems + ["no runs"]
+    if not isinstance(v, dict) or not (v.get("energy") is None or isinstance(v["energy"], dict)):
+        return problems + ["verdict must be an object"]
     text = json.dumps(u)
     if any(_CONTROL.search(t) for t in _strings(u)):
         problems.append("control or direction-changing characters are not allowed")
-    if not u.get("public"):
-        if re.search(r"https?://|\b[0-9a-f]{40}\b", text):
+    if not public:
+        if re.search(r"https?://|\b[0-9a-fA-F]{40}\b", text):
             problems.append("a private upload must not contain URLs or commit shas")
-        for side in ("baseline", "challenger"):
-            extra = set(u.get(side, {})) - {"name", "agent", "model"}
+        for side, spec in zip(("baseline", "challenger"), sides):
+            extra = set(spec) - {"name", "agent", "model"}
             if extra:
                 problems.append(f"{side}: private uploads carry only name, agent and model (found {sorted(extra)})")
         if not u.get("repo_id"):
             problems.append("missing repo_id")
-    for side in ("baseline", "challenger"):
-        if not re.fullmatch(r"[\w.+@\-]{1,60}", str(u.get(side, {}).get("name", ""))):
+    rid = u.get("repo_id")
+    if rid is not None and not (isinstance(rid, str) and re.fullmatch(r"[0-9a-f]{24}", rid)):
+        problems.append("repo_id must be 24 hex characters")
+    elif rid and taken and taken.get(rid, path.parent.name) != path.parent.name:
+        problems.append(f"repo_id {rid} belongs to another submitter's records (repo ids are per machine)")
+    for side, spec in zip(("baseline", "challenger"), sides):
+        if not isinstance(spec.get("name"), str) or not re.fullmatch(r"[\w.+@\-]{1,60}", spec["name"], re.ASCII):
             problems.append(f"{side}: name must be letters, digits and .+@- only")
-    if not re.fullmatch(r"\d{4}-W\d{2}", str(u.get("week", ""))):
+    if not re.fullmatch(r"\d{4}-W(0[1-9]|[1-4]\d|5[0-3])", str(u.get("week", "")), re.ASCII):
         problems.append("week must look like 2026-W40")
     if u.get("affiliation") is not None and (not isinstance(u["affiliation"], str) or len(u["affiliation"]) > 100):
         problems.append("affiliation: text up to 100 characters")
-    runs = u.get("runs")
-    if not isinstance(runs, list) or not runs:
-        return problems + ["no runs"]
-    names = {u.get("baseline", {}).get("name"), u.get("challenger", {}).get("name")}
+    rerun_of = u.get("rerun_of")
+    if rerun_of is not None and not (isinstance(rerun_of, str) and re.fullmatch(r"[0-9a-f]{64}", rerun_of)):
+        problems.append("rerun_of must be the SHA-256 of the record it reran (64 hex characters) or null")
+    elif rerun_of is not None and public is not True:
+        problems.append("a rerun must be a --public record (aimpg verify --rerun makes one)")
+    if u.get("claim_kind") not in ("agent", "model", "setup") or u.get("task_mode") not in ("hint", "tests"):
+        problems.append("claim_kind or task_mode has an unknown value")
+    if not (_count(u.get("superseded_attempts")) and _count(u.get("excluded_commits"))):
+        problems.append("superseded_attempts and excluded_commits must be counts")
+    versions = u.get("versions")
+    if not isinstance(versions, dict) or set(versions) - VERSION_FIELDS or not all(
+            isinstance(x, str) and len(x) <= 40 for x in versions.values()):
+        problems.append(f"versions: short texts for {', '.join(sorted(VERSION_FIELDS))} only")
+    names = {sides[0].get("name"), sides[1].get("name")}
     seen = set()
     for i, r in enumerate(runs):
+        extra = set(r) - RUN_FIELDS
+        if extra:
+            problems.append(f"run {i}: fields a run doesn't have: {sorted(extra)}")
         if r.get("outcome") not in OUTCOMES:
             problems.append(f"run {i}: unknown outcome")
-        if bool(r.get("passed")) != (r.get("outcome") == "passed"):
+        if not isinstance(r.get("passed"), bool) or r["passed"] != (r.get("outcome") == "passed"):
             problems.append(f"run {i}: passed doesn't match outcome")
-        if r.get("setup") not in names:
+        if not isinstance(r.get("setup"), str) or r["setup"] not in names:
             problems.append(f"run {i}: setup is neither baseline nor challenger")
-        if not isinstance(r.get("cost_usd"), (int, float)) or r["cost_usd"] < 0:
+        if not isinstance(r.get("agent"), str) or not (r.get("model") is None or isinstance(r["model"], str)):
+            problems.append(f"run {i}: agent and model must be text")
+        if not isinstance(r.get("cost_known"), bool) or not _number(r.get("cost_usd")) or r["cost_usd"] < 0:
             problems.append(f"run {i}: bad cost")
-        if r.get("tokens") is not None and not (len(r["tokens"]) == 4 and all(isinstance(x, int) and x >= 0 for x in r["tokens"])):
+        if not _number(r.get("wall_s")) or r["wall_s"] < 0 or not _count(r.get("repeat")):
+            problems.append(f"run {i}: wall_s and repeat must be non-negative numbers")
+        if r.get("tokens") is not None and not (isinstance(r["tokens"], list) and len(r["tokens"]) == 4
+                                                and all(_count(x) for x in r["tokens"])):
             problems.append(f"run {i}: tokens must be four non-negative whole numbers")
+        wh = r.get("wh")
+        if wh is not None and not (isinstance(wh, list) and len(wh) == 2 and all(_number(x) for x in wh) and 0 <= wh[0] <= wh[1]):
+            problems.append(f"run {i}: wh must be a [low, high] range of non-negative numbers")
+        if r.get("requests") not in (None, "1-5", "6-20", "21-50", "51+") or not isinstance(r.get("tokens_check", ""), str):
+            problems.append(f"run {i}: requests or tokens_check has an unknown value")
         commit = r.get("commit")
-        if u.get("public") and not (isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit)):
+        if public and not (isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit)):
             problems.append(f"run {i}: a public record's commit must be a 40-character commit id")
-        elif not u.get("public") and not isinstance(commit, int):
+        elif not public and not _count(commit):
             problems.append(f"run {i}: a private record's commit must be a run-local number")
-        key = (str(commit), r.get("setup"), r.get("repeat"))
+        key = (str(commit), str(r.get("setup")), str(r.get("repeat")))
         if key in seen:
             problems.append(f"run {i}: duplicate")
         seen.add(key)
     commits, repeats = {k[0] for k in seen}, {k[2] for k in seen}
-    if any((c, s, n) not in seen for c in commits for s in names for n in repeats):
+    if any((c, s, n) not in seen for c in commits for s in map(str, names) for n in repeats):
         problems.append("incomplete: every commit × setup × repeat must be present (submit all runs, including failures)")
-    v = u.get("verdict") or {}
     if v.get("answer") not in ANSWERS:
         problems.append("verdict answer must be SUPPORTED, NOT SUPPORTED or NOT PROVEN")
+    ratio, energy = v.get("cost_ratio"), v.get("energy")
+    if ratio is not None and not (_number(ratio) and ratio > 0):
+        problems.append("verdict cost_ratio must be a positive number or null")
+    if energy is not None and not isinstance(energy.get("verdict"), str):
+        problems.append("verdict energy must name its verdict")
     if not problems:  # re-check what can be re-checked from the upload itself
-        b, c = _summary(runs, u["baseline"]["name"]), _summary(runs, u["challenger"]["name"])
-        if v["answer"] == "SUPPORTED" and (not c["solved"] or b["solve_rate"] - c["solve_rate"] > 0.10):
-            problems.append("verdict says SUPPORTED but the challenger solves fewer tasks")
-        if v.get("cost_ratio") and b["usd_per_solved"] and c["usd_per_solved"]:
-            ratio = c["usd_per_solved"] / b["usd_per_solved"]
-            if abs(ratio - v["cost_ratio"]) > 0.05 * max(1.0, v["cost_ratio"]):
-                problems.append(f"cost ratio {v['cost_ratio']} doesn't match the runs ({ratio:.3f})")
+        problems += _recheck_verdict(runs, sides[0]["name"], sides[1]["name"], v)
+    return problems
+
+
+def _recheck_verdict(runs: list[dict], baseline: str, challenger: str, v: dict) -> list[str]:
+    """The rules of verify's verdict() that the rounded runs can still show."""
+    from aimpg.replay.verify import COST_MARGIN, SOLVE_MARGIN
+
+    problems = []
+    b, c = _summary(runs, baseline), _summary(runs, challenger)
+    ratio, energy = v.get("cost_ratio"), v.get("energy")
+
+    def agents_models(setup: str) -> tuple[set, list]:
+        mine = [r for r in runs if r["setup"] == setup]
+        return {r["agent"] for r in mine}, sorted({r["model"] for r in mine if r["model"]})
+
+    (b_agents, b_models), (c_agents, c_models) = agents_models(baseline), agents_models(challenger)
+    same_model = b_agents == c_agents == {"claude"} and b_models == c_models
+    if (energy is not None) != same_model:
+        problems.append("an energy verdict belongs to same-agent, same-model claims, and only to them")
+    if v["answer"] == "SUPPORTED" and (not c["solved"] or b["solve_rate"] - c["solve_rate"] > SOLVE_MARGIN):
+        problems.append("verdict says SUPPORTED but the challenger solves fewer tasks")
+    if b["usd_per_solved"] and c["usd_per_solved"]:
+        again = c["usd_per_solved"] / b["usd_per_solved"]
+        if ratio is None or abs(again - ratio) > 0.05 * max(1.0, ratio):
+            problems.append(f"cost ratio {ratio} doesn't match the runs ({again:.3f})")
+    elif ratio is not None and (b["usd_per_solved"] is None or c["usd_per_solved"] is None):
+        problems.append("a cost ratio is given but the runs don't price both setups")
+    if v["answer"] == "SUPPORTED":
+        if same_model and energy is not None and energy["verdict"] != "uses less":
+            problems.append("verdict says SUPPORTED but the energy verdict isn't 'uses less'")
+        if not same_model and (ratio is None or ratio > 1 - COST_MARGIN):
+            problems.append(f"verdict says SUPPORTED but cost per solved task isn't {COST_MARGIN:.0%} lower")
     return problems
 
 
@@ -297,12 +405,26 @@ def load(records_dir: Path) -> list[dict]:
     """[{submitter, sha, upload}] from records/<login>/<sha256>.json."""
     out = []
     for path in sorted(Path(records_dir).glob("*/*.json")):
-        out.append({"submitter": path.parent.name, "sha": path.stem, "upload": json.loads(path.read_text())})
+        data = path.read_bytes()
+        out.append({"submitter": path.parent.name, "sha": hashlib.sha256(data).hexdigest(), "upload": json.loads(data)})
     return out
 
 
 def _claim(u: dict) -> tuple[str, str]:
     return u["baseline"]["name"], u["challenger"]["name"]
+
+
+def _rerun_key(u: dict) -> str:
+    """What a rerun repeats exactly: both setups, the task mode and the commits (verify --rerun copies them)."""
+    return json.dumps([u["baseline"], u["challenger"], u["task_mode"], sorted({r["commit"] for r in u["runs"]})],
+                      sort_keys=True)
+
+
+def _reruns(rerun: dict, target: dict) -> bool:
+    """Does this entry really rerun that public record? A rerun names it by SHA-256, comes from
+    another account and ran the same setups on the same commits (scoreboard QA, 2026-10-25)."""
+    return (rerun["submitter"] != target["submitter"] and rerun["upload"].get("public") is True
+            and target["upload"].get("public") is True and _rerun_key(rerun["upload"]) == _rerun_key(target["upload"]))
 
 
 def tiers(entries: list[dict]) -> dict[str, str]:
@@ -314,7 +436,7 @@ def tiers(entries: list[dict]) -> dict[str, str]:
         target = e["upload"].get("rerun_of")
         if target:
             out[e["sha"]] = "rerun"
-            if target in by_sha and by_sha[target]["submitter"] != e["submitter"]:
+            if isinstance(target, str) and target in by_sha and _reruns(e, by_sha[target]):
                 reruns[target].append(e["upload"]["verdict"]["answer"])
     for e in entries:
         if e["sha"] in out:
@@ -341,7 +463,7 @@ def aggregate(entries: list[dict], vendors: dict[str, list[str]] | None = None) 
     for e in entries:
         u, t = e["upload"], tier[e["sha"]]
         claim = _claim(u)
-        if t in ("rerun", "disputed") or "custom" in claim or "cmd" in claim:
+        if t in ("rerun", "disputed") or any(_PRIVATE_NAME.fullmatch(n) for n in claim):
             continue
         if e["submitter"] in vendors.get(claim[1], []) and t != "reproduced":
             continue  # a vendor's own claim counts only once someone else reproduces it
@@ -350,10 +472,11 @@ def aggregate(entries: list[dict], vendors: dict[str, list[str]] | None = None) 
     for t, by_claim in groups.items():
         rows = []
         for claim, es in sorted(by_claim.items()):
-            # one unit per repo (newest record), at most REPOS_PER_ACCOUNT repos per account
+            # one unit per repo (newest record), at most REPOS_PER_ACCOUNT repos per account.
+            # Keyed by submitter too: repo ids are public, so a copied one mustn't replace your record.
             per_repo = {}
             for e in sorted(es, key=lambda e: e["upload"]["week"]):
-                per_repo[e["upload"].get("repo_id") or e["upload"].get("repo")] = e
+                per_repo[e["submitter"], e["upload"].get("repo_id") or e["upload"].get("repo")] = e
             kept, per_account = [], defaultdict(int)
             for e in sorted(per_repo.values(), key=lambda e: e["upload"]["week"], reverse=True):
                 if per_account[e["submitter"]] < REPOS_PER_ACCOUNT:
@@ -486,7 +609,7 @@ Results use the median repo, never an average.</small></p>
 
 <footer><p>{footer}</p>
 <p>Add yours: <code>aimpg verify ...</code> then <code>aimpg submit</code>. Private uploads carry no code, prompts,
-commit ids or repo names. Withdraw anytime by pull request.</p></footer>
+commit ids or repo names. A pull request that deletes a record takes it off this page; the repo's history keeps it.</p></footer>
 </main></body></html>
 """
 
@@ -520,6 +643,7 @@ def add_parsers(sub) -> None:
     v = bsub.add_parser("validate", help="check submitted files")
     v.add_argument("files", type=Path, nargs="+")
     v.add_argument("--author", help="pull request author: files must be under records/<author>/")
+    v.add_argument("--records", type=Path, help="the scoreboard's records/ folder: a repo_id may not be another submitter's")
     g = bsub.add_parser("build", help="aggregate records into the static page")
     g.add_argument("records", type=Path)
     g.add_argument("out", type=Path)
@@ -535,9 +659,10 @@ def main(args) -> int:
             print(f"submit: {exc}")
             return 1
     if args.scoreboard_command == "validate":
+        taken = _repo_ids(args.records) if args.records else None
         bad = 0
         for f in args.files:
-            problems = validate_upload(f, f.read_bytes(), author=args.author)
+            problems = validate_upload(f, f.read_bytes(), author=args.author, taken=taken)
             print(f"{'✗' if problems else '✓'} {f}")
             for p in problems:
                 print(f"    {p}")
@@ -548,13 +673,25 @@ def main(args) -> int:
     return 0
 
 
+def _repo_ids(records_dir: Path) -> dict[str, str]:
+    """repo_id → submitter for the records already on the scoreboard."""
+    out = {}
+    for e in load(records_dir):
+        if isinstance(e["upload"], dict) and isinstance(e["upload"].get("repo_id"), str):
+            out.setdefault(e["upload"]["repo_id"], e["submitter"])
+    return out
+
+
 def _submit(args) -> int:
-    from aimpg.replay.verify import check, integrity
+    from aimpg.replay.verify import VerifyError, check, integrity
 
     record = json.loads(args.record.read_text())
     if not record.get("repo_id") and args.repo:
         record["repo_id"] = repo_id(str(args.repo))
-    ok, _ = check(record)
+    try:
+        ok, _ = check(record)
+    except VerifyError as exc:
+        raise UploadError(f"{exc}; submit takes the .record.json that aimpg verify wrote") from None
     problems, _ = integrity(record)
     if not ok or problems:
         raise UploadError("the record fails `aimpg verify --check`; only unmodified records can be submitted")
@@ -571,8 +708,9 @@ def _submit(args) -> int:
         print("It's a --public record: it includes the repo URL, commit ids and setup texts, so anyone can rerun it.")
     else:
         print("Not included: your code, prompts, CLAUDE.md, commands, commit ids, repo name, exact token counts or dates.")
-    print("Your GitHub username will be shown with it. You can withdraw it anytime with a pull request that deletes it.")
-    if not args.yes and input("Publish it? [y/N] ").strip().lower() != "y":
+    print("Your GitHub username will be shown with it. A pull request that deletes it takes it off the scoreboard,\n"
+          "but it stays in the scoreboard repo's history and in forks.")
+    if not args.yes and _ask("Publish it? [y/N] ") != "y":
         print("Stopped. Nothing was sent.")
         return 1
 
@@ -587,6 +725,13 @@ def _submit(args) -> int:
     url = _open_pull_request(args.scoreboard, name, data, upload)
     print(f"Pull request: {url}\nThe scoreboard's checks run on it; once merged, the page updates.")
     return 0
+
+
+def _ask(prompt: str) -> str:
+    try:
+        return input(prompt).strip().lower()
+    except EOFError:  # no terminal: the answer is no
+        return ""
 
 
 def _gh(*argv: str, input_text: str | None = None) -> str:
