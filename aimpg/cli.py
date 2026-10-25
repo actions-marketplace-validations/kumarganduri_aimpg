@@ -138,16 +138,19 @@ def main(argv: list[str] | None = None) -> int:
             return live_mod.run_statusline(live_mod.previous_statusline())
         if args.command == "hook":
             return live_mod.run_post_commit_hook()
-        if args.action == "install":
-            import shutil
-
-            exe = shutil.which("aimpg")
-            if exe is None:
-                print("Install aimpg permanently first so Claude Code can call it:  uv tool install aimpg")
-                return 1
-            print(live_mod.install(exe=exe))
-        else:
-            print(live_mod.uninstall())
+        try:
+            if args.action == "install":
+                exe, note = live_mod.launcher()
+                if note:
+                    print(note)
+                if exe is None:
+                    return 1
+                print(live_mod.install(exe=exe))
+            else:
+                print(live_mod.uninstall())
+        except live_mod.SettingsError as exc:
+            print(exc)
+            return 1
         return 0
 
     if args.command == "team":

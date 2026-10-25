@@ -130,3 +130,86 @@ def test_status_line_wraps_the_previous_one(tmp_path, monkeypatch, capsys):
     live.run_statusline("echo mine")
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "mine" and out[1].startswith("⚡ task $")
+
+
+def _exe(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_launcher_never_points_claude_code_at_the_uv_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(live.tempfile, "gettempdir", lambda: "/nonexistent-tmp")  # tmp_path lives in the temp dir
+    cached = _exe(tmp_path / "uv" / "archive-v0" / "Fv1" / "bin" / "aimpg")  # what `uvx aimpg` puts first on PATH
+    uvx = _exe(tmp_path / "local" / "bin" / "uvx")
+    monkeypatch.setenv("PATH", f"{cached.parent}:{uvx.parent}")
+    exe, note = live.launcher()
+    assert exe == [str(uvx), f"aimpg@{live.metadata.version('aimpg')}"] and "uv tool install aimpg" in note
+    tool = _exe(tmp_path / "local" / "bin" / "aimpg")  # after `uv tool install aimpg`
+    assert live.launcher() == ([str(tool)], "")
+    monkeypatch.setenv("PATH", str(cached.parent))
+    exe, note = live.launcher()
+    assert exe is None and "uv tool install aimpg" in note
+
+
+def test_install_repairs_an_earlier_install_from_a_path_that_is_gone(tmp_path):
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"statusLine": {"type": "command", "command": "~/my-line.sh"}}))
+    live.install(settings, "/cache/archive-v0/GONE/bin/aimpg", confirm=lambda _: "y")
+    assert live.install(settings, ["/usr/bin/uvx", "aimpg@0.7.1"], confirm=lambda _: "y").startswith("Installed")
+    new = json.loads(settings.read_text())
+    assert new["statusLine"]["command"] == "/usr/bin/uvx aimpg@0.7.1 statusline"
+    assert [h["command"] for e in new["hooks"]["PostToolUse"] for h in e["hooks"]] == ["/usr/bin/uvx aimpg@0.7.1 hook post-commit"]
+    assert live.previous_statusline() == "~/my-line.sh"  # still the user's own, not the old aimpg command
+    assert live.install(settings, ["/usr/bin/uvx", "aimpg@0.7.1"], confirm=lambda _: "y") == "aimpg live is already installed."
+
+
+def test_install_keeps_mode_and_symlink_and_uninstall_restores_the_whole_statusline(tmp_path):
+    real = tmp_path / "dotfiles" / "settings.json"
+    real.parent.mkdir()
+    original = {"statusLine": {"type": "command", "command": "echo MYLINE", "padding": 2}, "env": {"TOKEN": "x"}}
+    real.write_text(json.dumps(original))
+    real.chmod(0o600)
+    settings = tmp_path / "claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.symlink_to(real)
+    live.install(settings, "/bin/aimpg", confirm=lambda _: "y")
+    assert settings.is_symlink() and json.loads(real.read_text())["statusLine"]["padding"] == 2
+    assert (real.stat().st_mode & 0o777) == 0o600
+    assert all((b.stat().st_mode & 0o777) == 0o600 for b in settings.parent.glob("settings.json.aimpg-backup-*"))
+    assert live.uninstall(settings).startswith("Removed")
+    assert settings.is_symlink() and json.loads(real.read_text()) == original
+    assert live.uninstall(settings) == "aimpg live is not installed. Nothing changed."
+
+
+def test_install_refuses_read_only_or_unexpected_settings(tmp_path):
+    settings = tmp_path / "settings.json"
+    for text in ['{\n  "model": "opus",\n}\n', '{"statusLine": "echo hi"}', '{"hooks": {"PostToolUse": {"a": 1}}}', "[]"]:
+        settings.write_text(text)
+        for call in (lambda: live.install(settings, "/bin/aimpg", confirm=lambda _: "y"), lambda: live.uninstall(settings)):
+            with pytest.raises(live.SettingsError, match="Nothing changed"):
+                call()
+        assert settings.read_text() == text
+    settings.write_text('{"model": "opus"}')
+    settings.chmod(0o444)
+    with pytest.raises(live.SettingsError, match="read-only"):
+        live.install(settings, "/bin/aimpg", confirm=lambda _: "y")
+    assert settings.read_text() == '{"model": "opus"}' and not list(tmp_path.glob("settings.json.aimpg-backup-*"))
+
+
+def test_install_without_a_terminal_changes_nothing(tmp_path):
+    def no_tty(_):
+        raise EOFError
+    assert live.install(tmp_path / "settings.json", "/bin/aimpg", confirm=no_tty) == "Nothing changed."
+    assert not (tmp_path / "settings.json").exists()
+
+
+def test_status_line_survives_odd_input(tmp_path, monkeypatch, capsys):
+    t = tmp_path / "s.jsonl"
+    append(t, [assistant("r1", iso(time.time()), out=100), ["usage"]])
+    for payload in ("[1, 2]", json.dumps({"session_id": "S", "transcript_path": str(t)})):
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        assert live.run_statusline() == 0
+    assert capsys.readouterr().out.splitlines()[-1].startswith("⚡ task $")
+    assert SessionState.load("S").offset == t.stat().st_size  # moved past the odd row
