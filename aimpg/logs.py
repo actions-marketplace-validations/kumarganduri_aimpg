@@ -34,7 +34,7 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 SYNTHETIC_MODEL = "<synthetic>"
 
 # `git commit` as a command, not text inside a pipe like `git log | grep commit`.
-_GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\bcommit\b")
+_GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]{0,200}?\bcommit\b")  # bounded: long one-line commands stay fast
 
 
 def parse_ts(value: str | None) -> float | None:

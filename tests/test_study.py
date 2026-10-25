@@ -91,6 +91,14 @@ def test_study_report_from_result_files(tmp_path, capsys):
     assert "claude-code@haiku vs claude-code" in out and "| yes |" in out
     assert (tmp_path / "runs-report.md").exists() and (tmp_path / "runs-report.json").exists()
 
+    # the published data folder can be recomputed in place without writing over its own report.json
+    (tmp_path / "runs-report.md").unlink()
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan))
+    from aimpg import cli
+    assert cli.main(["study", "report", str(plan_file), "--runs", str(folder)]) == 0
+    assert "| yes |" in capsys.readouterr().out and not (tmp_path / "runs-report.md").exists()
+
 
 def test_primary_metric_decides_the_headline():
     # tokens cut by 40% at the same cost: a token-saver's claim holds on tokens, not on dollars
