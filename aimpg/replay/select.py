@@ -1,9 +1,9 @@
 """Pick commits that can fairly judge a replay (Phase 2 review R4). Costs no AI tokens.
 
 A commit qualifies if it is yours, changes both code and tests, has a
-descriptive message (≥ 6 words), is newer than the model's training cutoff
-(so it can't be memorized), lives in a supported repo (pytest, vitest, jest),
-and its tests flip: they FAIL on the parent code and PASS on the commit, on
+descriptive message (≥ 6 words), was authored (and committed) on or after
+the model's training cutoff (so it can't be memorized), lives in a supported
+repo (pytest, vitest, jest), and its tests flip: they FAIL on the parent code and PASS on the commit, on
 two runs each (not flaky). Tests that already passed before can't tell a
 real fix from an agent that did nothing.
 """
@@ -41,7 +41,7 @@ def candidates(repo: str, since: float, cutoff: float, *, any_author: bool = Fal
         code = sorted(f for f in c.files if not TEST_FILE.search(f))
         if not any_author and c.author_email != me:
             skip("not yours")
-        elif c.ts <= cutoff:
+        elif c.ts < cutoff or _authored(repo, c.sha) < cutoff:  # c.ts is the committer date; a rebase renews only that
             skip("before model training cutoff")
         elif not tests or not code:
             skip("doesn't change both code and tests")
@@ -82,6 +82,10 @@ def commit_at(repo: str, sha: str) -> Commit:
     ts = float(workspace.git(repo, "log", "-1", "--format=%ct", "--end-of-options", sha).decode().strip())
     tests = sorted(f for f in files if TEST_FILE.search(f))
     return Commit(repo, sha, parents[0], subject, body, tests, sorted(set(files) - set(tests)), ts=ts)
+
+
+def _authored(repo: str, sha: str) -> float:
+    return float(workspace.git(repo, "log", "-1", "--format=%at", "--end-of-options", sha).decode().strip() or 0)
 
 
 def _message(repo: str, sha: str) -> tuple[str, str]:
