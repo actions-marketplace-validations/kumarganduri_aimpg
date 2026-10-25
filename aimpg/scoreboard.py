@@ -439,6 +439,7 @@ def render(data: dict, *, demo: bool = False) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>aimpg scoreboard</title>
+<meta name="description" content="Do AI coding token-savers, prompts, models and agents really save money? Results rerun on real commits and judged by their own tests.">
 <style>
 :root{{--bg:#fbfaf7;--fg:#1d1d1b;--muted:#6b6a65;--line:#e4e1d8;--yes:#1f7a4d;--no:#b3261e;--maybe:#8a6d00;--chip:#efece4}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#151513;--fg:#ecebe6;--muted:#a3a19a;--line:#33322e;--yes:#5cc18f;--no:#f08a80;--maybe:#e0c063;--chip:#26251f}}}}
@@ -461,6 +462,8 @@ code{{background:var(--chip);padding:1px 5px;border-radius:4px;font-size:14px}} 
 <p class="lede">Do token-savers, prompts, models and agents really save money on real code? Each result reruns a
 developer's own past commits both ways, and their own tests judge them. Made with
 <a href="https://github.com/kumarganduri/aimpg">aimpg verify</a>; {data["records"]} records so far.</p>
+<p><b><a href="report-1/">Report No. 1: what AI coding costs per solved task</a></b> (984 pre-registered reruns of real
+commits) · <a href="start/">aimpg in 5 minutes</a></p>
 
 <h2>Reproduced</h2>
 <p class="lede">Counted only when someone else reran a public record and got the same answer.</p>

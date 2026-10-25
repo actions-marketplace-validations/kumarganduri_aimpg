@@ -20,6 +20,7 @@ HERE = Path(__file__).parent
 STATE = Path.home() / ".aimpg" / "study" / "report-1"
 REPO_URL = "https://github.com/kumarganduri/aimpg"
 PREREG = f"{REPO_URL}/blob/main/docs/study/report-1/PREREGISTRATION.md"
+PAGE_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
 
 LABEL = {
     "claude-code@haiku": "Haiku 5.5", "claude-code@opus": "Opus 5.5", "codex@gpt-6.1-sol": "Codex (gpt-6.1-sol)",
@@ -156,6 +157,12 @@ def page(report, sel, urls, n_runs: int, total_usd: float) -> str:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI Coding MPG Report No. 1</title>
 <meta name="description" content="What AI coding agents cost per solved task on 56 real commits from 8 open-source repos, pre-registered, with all raw data.">
+<meta property="og:type" content="article"><meta property="og:url" content="{PAGE_URL}">
+<meta property="og:title" content="AI Coding MPG Report No. 1: what AI coding costs per solved task">
+<meta property="og:description" content="984 reruns of 56 real commits from 8 open-source repos. Haiku 5.5 about 6× cheaper per solved task than Sonnet 5.5; Opus 5.5 solves more at 2.6× the cost. Pre-registered, raw data public.">
+<meta property="og:image" content="{PAGE_URL}og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Haiku 5.5 6× cheaper per solved task; Opus 5.5 2.6× more; a fresh session +13%">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,600;112,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -274,6 +281,7 @@ def main(out: Path) -> None:
             if "cost_usd" in d and d.get("outcome") != "account_error":
                 total += d["cost_usd"]
     (out / "index.html").write_text(page(report, sel, urls, n, total))
+    shutil.copyfile(HERE / "og" / "og.png", out / "og.png")  # link-preview image, made from og/og.html
     print(f"wrote {out / 'index.html'} ({n} run records, ${total:.2f})")
 
 

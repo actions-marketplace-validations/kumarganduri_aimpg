@@ -116,7 +116,7 @@ def test_cli_report_end_to_end(world, capsys):
 
 def test_cli_without_logs_dir(tmp_path, capsys):
     assert main(["report", "--logs", str(tmp_path / "missing")]) == 0
-    assert "No Claude Code logs found" in capsys.readouterr().out
+    assert "No AI coding logs found" in capsys.readouterr().out
 
 
 def test_cli_with_logs_but_nothing_in_window(write_log, tmp_path, capsys):

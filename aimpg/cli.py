@@ -24,6 +24,8 @@ from aimpg import defaults as defaults_mod
 from aimpg import scoreboard as scoreboard_mod
 from aimpg.replay import verify as verify_mod
 
+REPORT_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
+
 
 def _common(p: argparse.ArgumentParser, days: int) -> None:
     p.add_argument("--days", type=int, default=days, help=f"window size in days (default {days})")
@@ -157,7 +159,11 @@ def main(argv: list[str] | None = None) -> int:
     from aimpg.cursor_usage import CursorExportError
 
     if not (args.logs.is_dir() or args.cursor_usage or (args.codex_logs or codex_logs.DEFAULT_ROOT).is_dir()):
-        print(f"No Claude Code logs found at {args.logs}. Nothing to report.")
+        codex_root = args.codex_logs or codex_logs.DEFAULT_ROOT
+        print(f"No AI coding logs found (looked for Claude Code in {args.logs} and Codex in {codex_root}).\n"
+              "  Logs somewhere else?  aimpg report --logs DIR   or   aimpg report --codex-logs DIR\n"
+              "  Using Cursor?         export usage from cursor.com/dashboard, then: aimpg report --cursor-usage FILE.csv\n"
+              f"  No logs yet?          see what each model costs per solved task on real commits: {REPORT_URL}")
         return 0
     for path in args.cursor_usage:
         if not path.expanduser().is_file():

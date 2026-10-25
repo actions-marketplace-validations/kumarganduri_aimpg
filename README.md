@@ -6,6 +6,8 @@
 uvx aimpg report
 ```
 
+**[Report No. 1: what AI coding costs per solved task](https://kumarganduri.github.io/aimpg-scoreboard/report-1/)**: 984 pre-registered reruns of 56 real commits. Haiku 5.5 was about 6× cheaper per solved task than Sonnet 5.5 while solving almost as much, and starting a fresh session for the next task cost 13% more than continuing.
+
 **New here? [aimpg in 5 minutes](https://kumarganduri.github.io/aimpg-scoreboard/start/)** walks you from install to your first numbers, the live status line, and your team's GitHub Action, with copy buttons for every command.
 
 **Using it as a GitHub Action?** Add `uses: kumarganduri/aimpg@v0.6.3` to a workflow and every pull request shows its AI cost, and every week your team's cost per working change. Copy the workflow from [Team numbers, without a server](#6-team-numbers-without-a-server).

@@ -118,3 +118,10 @@ def test_export_with_cloud_agent_columns_and_no_dollar_costs(tmp_path):
     (req,) = parse_cursor([export(tmp_path / "u.csv", [r], header)]).requests
     assert req.model == "grok-bot-cua" and req.usage.output == 11329
     assert usage_cost(req.usage, req.model) is None  # counted as unpriced, never guessed
+
+
+def test_cli_no_logs_points_somewhere(tmp_path, capsys):
+    # A first-time user with no logs gets next steps, not a dead end
+    assert main(["report", "--logs", str(tmp_path / "none"), "--codex-logs", str(tmp_path / "none2")]) == 0
+    out = capsys.readouterr().out
+    assert "--cursor-usage" in out and "--codex-logs" in out and "report-1" in out
