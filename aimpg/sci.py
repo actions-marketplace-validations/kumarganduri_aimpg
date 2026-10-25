@@ -77,7 +77,7 @@ def compute(requests, n_commits: int, judged, *, grid: float, period: tuple[floa
                      "included": INCLUDED, "excluded": EXCLUDED},
         "inputs": {
             "E_kwh": [round(e.low / 1000, 4), round(e.high / 1000, 4)],
-            "E_method": f"aimpg energy model, factors version {load_factors().get('version')} (method: https://github.com/kumarganduri/aimpg#how-energy-is-estimated)",
+            "E_method": f"aimpg energy model, factors version {load_factors().get('version')} (method: https://github.com/kumarganduri/aimpg#how-it-works)",
             "I_g_per_kwh": grid,
             "I_method": "location-based grid average (no market-based measures)",
             "M_g_per_kwh_served": list(EMBODIED_G_PER_KWH),

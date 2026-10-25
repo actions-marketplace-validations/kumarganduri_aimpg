@@ -8,6 +8,9 @@ A commit becomes judgeable 30 days after it was made. It is:
     not kept   it never reached the default branch (or is unknown)
     durable    none of the above
 
+Commits in a repo git can't read (deleted, moved, no default branch, git
+error) are "unreadable": not judged, and left out of both numbers.
+
     cost per working change = AI $ on judged commits / number of durable ones
     waste ratio             = AI $ on judged commits that weren't durable / AI $ on judged commits
 
@@ -35,6 +38,7 @@ class Judged:
     reworked: list[dict] = field(default_factory=list)
     not_kept: list[dict] = field(default_factory=list)
     too_new: list[dict] = field(default_factory=list)
+    unreadable: list[dict] = field(default_factory=list)  # in a repo git couldn't read: not judged
     errors: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -83,7 +87,7 @@ def judge(ledger: dict[str, dict], now: float | None = None) -> Judged:
             reverts = reverted_shas(repo, oldest)
         except GitError as exc:
             result.errors[repo] = str(exc)
-            result.not_kept.extend(recs)
+            result.unreadable.extend(recs)
             continue
         own = {c.sha: c for c in commits}
         for rec in recs:

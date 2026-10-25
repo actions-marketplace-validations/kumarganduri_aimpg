@@ -34,7 +34,7 @@ TOOL_OUTPUTS = ("function_call_output", "custom_tool_call_output", "local_shell_
 def iter_files(root: Path | None = None) -> Iterator[Path]:
     root = root or DEFAULT_ROOT  # looked up at call time so tests can point it elsewhere
     if root.is_dir():
-        yield from sorted(root.rglob("*.jsonl"))
+        yield from sorted(p for p in root.rglob("*.jsonl") if p.is_file())
 
 
 def _command_text(payload: dict) -> str:
@@ -54,16 +54,29 @@ def _command_text(payload: dict) -> str:
     return ""
 
 
+def _tokens(usage: dict, key: str) -> int:
+    """A token count, or ValueError for anything that isn't a non-negative integer."""
+    value = int(usage.get(key) or 0)  # TypeError / ValueError / OverflowError on bad shapes
+    if value < 0:
+        raise ValueError(f"negative {key}")
+    return value
+
+
 def parse_codex(files: Iterable[Path]) -> ParseResult:
     result = ParseResult()
-    stats = {"files": 0, "rows": 0, "unique_requests": 0, "corrupt_rows": 0}
+    stats = {"files": 0, "rows": 0, "unique_requests": 0, "corrupt_rows": 0, "unreadable_files": 0}
     versions: dict[str, int] = {}
     for path in files:
         stats["files"] += 1
         session, cwd, model = path.stem, "", ""
         pending: dict[str, tuple[float, str]] = {}
         n = 0
-        with open(path, "rb") as fh:
+        try:
+            fh = open(path, "rb")
+        except OSError:  # deleted since it was listed, permission denied, ...
+            stats["unreadable_files"] += 1
+            continue
+        with fh:
             for line in fh:
                 if not line.strip():
                     continue
@@ -73,7 +86,13 @@ def parse_codex(files: Iterable[Path]) -> ParseResult:
                 except ValueError:
                     stats["corrupt_rows"] += 1
                     continue
-                kind, payload = row.get("type"), row.get("payload") or {}
+                if not isinstance(row, dict):
+                    stats["corrupt_rows"] += 1
+                    continue
+                # Codex's format isn't documented: a row of an unexpected shape is skipped, never fatal
+                kind, payload = row.get("type"), row.get("payload")
+                if not isinstance(payload, dict):
+                    payload = {}
                 ts = parse_ts(row.get("timestamp"))
                 if kind == "session_meta":
                     session = str(payload.get("session_id") or payload.get("id") or session)
@@ -84,12 +103,20 @@ def parse_codex(files: Iterable[Path]) -> ParseResult:
                     model = str(payload.get("model") or model)
                     cwd = str(payload.get("cwd") or cwd)
                 elif kind == "event_msg" and payload.get("type") == "token_count" and ts is not None:
-                    usage = ((payload.get("info") or {}).get("last_token_usage")) or {}
+                    info = payload.get("info")
+                    usage = info.get("last_token_usage") if isinstance(info, dict) else None
                     if not usage:
                         continue
-                    cached = int(usage.get("cached_input_tokens") or 0)
-                    written = int(usage.get("cache_write_input_tokens") or 0)
-                    total_in = int(usage.get("input_tokens") or 0)
+                    try:
+                        if not isinstance(usage, dict):
+                            raise TypeError("last_token_usage is not an object")
+                        cached = _tokens(usage, "cached_input_tokens")
+                        written = _tokens(usage, "cache_write_input_tokens")
+                        total_in = _tokens(usage, "input_tokens")
+                        output = _tokens(usage, "output_tokens") + _tokens(usage, "reasoning_output_tokens")
+                    except (TypeError, ValueError, OverflowError):
+                        stats["skipped_requests"] = stats.get("skipped_requests", 0) + 1
+                        continue
                     n += 1
                     result.requests.append(Request(
                         id=f"codex:{session}:{n}",
@@ -100,7 +127,7 @@ def parse_codex(files: Iterable[Path]) -> ParseResult:
                             fresh_in=max(0, total_in - cached - written),
                             cache_write=written,
                             cache_read=cached,
-                            output=int(usage.get("output_tokens") or 0) + int(usage.get("reasoning_output_tokens") or 0),
+                            output=output,
                         ),
                         cwd=cwd,
                     ))
