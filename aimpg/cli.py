@@ -157,11 +157,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.team_command == "pr":
             try:
                 shas = share.branch_commits(args.repo, args.base)
-            except RuntimeError as exc:
-                print(f"Can't list this branch's commits: {exc}")
+            except RuntimeError as exc:  # stderr: the Action sends stdout to the markdown file
+                print(f"Can't list this branch's commits: {exc}", file=sys.stderr)
                 return 1
             sys.stdout.write(team.pr_markdown(team.pr_summary(repo, shas)))
         else:
+            if args.days <= 0 or args.min_group <= 0:
+                parser.error("--days and --min-group must be positive")
             sys.stdout.write(team.rollup_markdown(team.rollup(repo, days=args.days, min_group=args.min_group)))
         return 0
 

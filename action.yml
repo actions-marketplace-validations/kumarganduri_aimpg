@@ -48,12 +48,17 @@ runs:
       run: |
         set -euo pipefail
         out="$RUNNER_TEMP/aimpg-$MODE.md"
+        team() {  # aimpg prints its errors to stderr, so they reach this log rather than the markdown file
+          uvx --quiet --from "$ACTION_PATH" aimpg team "$@" > "$out" \
+            || { echo "::error::aimpg team $1 failed: see the message above"; exit 1; }
+        }
         case "$MODE" in
           pr)
-            base="origin/${BASE_REF:-main}"
-            uvx --quiet --from "$ACTION_PATH" aimpg team pr --repo . --base "$base" > "$out" ;;
+            if [ -n "$BASE_REF" ]; then base="origin/$BASE_REF"
+            else base="$(git symbolic-ref -q --short refs/remotes/origin/HEAD || echo origin/main)"; fi
+            team pr --repo . --base "$base" ;;
           rollup)
-            uvx --quiet --from "$ACTION_PATH" aimpg team rollup --repo . --days "$DAYS" --min-group "$MIN_GROUP" > "$out" ;;
+            team rollup --repo . --days "$DAYS" --min-group "$MIN_GROUP" ;;
           *) echo "::error::mode must be pr or rollup"; exit 1 ;;
         esac
         cat "$out" >> "$GITHUB_STEP_SUMMARY"
@@ -67,5 +72,12 @@ runs:
         PR: ${{ github.event.pull_request.number }}
         FILE: ${{ steps.run.outputs.file }}
       run: |
-        gh pr comment "$PR" --body-file "$FILE" --edit-last --create-if-none \
-          || echo "::warning::Couldn't comment (pull requests from forks get a read-only token); the summary above has the numbers."
+        # Edit only aimpg's own comment, found by its hidden marker: other bots post as the same user.
+        post() {
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- aimpg:pr -->"))) | .id' \
+            | tail -n 1)" || return 1
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$FILE" > /dev/null
+          else gh pr comment "$PR" --body-file "$FILE"; fi
+        }
+        post || echo "::warning::Couldn't comment (pull requests from forks get a read-only token); the summary above has the numbers."

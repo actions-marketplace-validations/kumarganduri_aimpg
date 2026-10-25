@@ -103,3 +103,16 @@ def test_working_changes_say_they_cover_all_history(repo):
     sha = repo.commit({"good.py": LINES}, "feat: good", days_ago(40))
     j = durable.judge({"k": {**rec(repo, sha, days_ago(40)), "first_seen": days_ago(35)}})
     assert f"all history since {durable.day(days_ago(35))}, not just this window" in working_changes(j)[0]
+
+
+def test_ledger_counts_a_split_session_once_not_once_per_commit(tmp_path):
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy
+
+    path = tmp_path / "ledger.json"
+    t = Task("/r", "abc", 1.0, "s", "fuzzy", "kept", author="a")
+    for i in range(8):
+        t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), 0.25)  # a session split four ways
+    ledger.record([TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=0.1)], path)
+    assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 2

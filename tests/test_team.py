@@ -1,6 +1,11 @@
 import json
+import os
 import subprocess
+import sys
 import time
+from pathlib import Path
+
+import pytest
 
 from aimpg import team
 from aimpg.cli import main
@@ -144,3 +149,72 @@ def test_cli_team_commands(tmp_path, capsys):
     assert "AI cost of this pull request" in capsys.readouterr().out
     assert main(["team", "rollup", "--repo", str(ann), "--min-group", "1"]) == 0
     assert "Cost per working change" in capsys.readouterr().out
+
+
+def test_note_counts_a_split_session_once_not_once_per_commit(tmp_path):
+    e = energy(tmp_path, "abc", "ann@x", n=8)
+    e.task.weights = [0.25] * 8  # a fuzzy session split four ways
+    assert team.note_for(e)["requests"] == 2
+
+
+def test_weekly_rows_never_show_fewer_than_min_group_people(tmp_path):
+    origin = setup(tmp_path)
+    repo = clone(origin, tmp_path / "team", "lead@x")
+    for i, who in enumerate(["a@x", "b@x", "c@x", "d@x", "e@x"]):
+        sha = commit(repo, f"f{i}", who, time.time() - 20 * DAY)
+        team.write_notes(str(repo), [energy(repo, sha, who, usd=1.0)], author=who)
+    solo = commit(repo, "solo", "a@x", time.time() - 3 * DAY)  # alone in her week
+    team.write_notes(str(repo), [energy(repo, solo, "a@x", usd=47.13)], author="a@x")
+    r = team.rollup(str(repo), days=90)
+    assert list(r["weeks"].values()) == [{"usd": 52.13, "commits": 6}]  # her week joins the one before
+    assert "$47.13" not in team.rollup_markdown(r)
+
+
+def test_notes_with_infinity_or_bools_are_ignored(tmp_path):
+    origin = setup(tmp_path)
+    ann = clone(origin, tmp_path / "ann", "ann@x")
+    a = commit(ann, "a", "ann@x", time.time())
+    git(ann, "notes", "--ref=aimpg", "add", "-m", '{"aimpg_note": 1, "usd": Infinity, "wh": [true, 1e400], "requests": true}', a)
+    assert team.read_notes(ann) == {}
+
+
+def test_pr_comment_is_found_by_its_marker_not_by_who_wrote_last():
+    md = team.pr_markdown({"commits": 1, "noted": 1, "usd": 1.0, "wh": [1, 2], "requests": 1})
+    assert md.startswith(team.PR_MARKER) and "1 of 1 commit has notes" in md and "1 model request\n" in md
+    action = (Path(__file__).parent.parent / "action.yml").read_text()
+    assert team.PR_MARKER in action and "--edit-last" not in action
+
+
+def test_cli_team_errors_go_to_stderr_and_bad_numbers_are_refused(tmp_path, capsys):
+    origin = setup(tmp_path)
+    ann = clone(origin, tmp_path / "ann", "ann@x")
+    assert main(["team", "pr", "--repo", str(ann), "--base", "origin/master"]) == 1
+    out = capsys.readouterr()
+    assert out.out == "" and "Can't list this branch's commits" in out.err
+    for bad in (["--days", "-5"], ["--min-group", "0"]):
+        with pytest.raises(SystemExit):
+            main(["team", "rollup", "--repo", str(ann), *bad])
+
+
+def test_action_step_prints_the_error_to_the_log(tmp_path):
+    """Run the Action's aimpg step as GitHub would, with uvx standing in for the published package."""
+    lines = (Path(__file__).parent.parent / "action.yml").read_text().splitlines()
+    start = lines.index("      id: run")
+    start = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |") + 1
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("    - "))
+    script = "\n".join(line[8:] for line in lines[start:end])
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uvx = bin_dir / "uvx"  # drops `--quiet --from PATH aimpg`
+    uvx.write_text(f'#!/bin/sh\nshift 4\nexec {sys.executable} -c "import sys; from aimpg.cli import main; sys.exit(main(sys.argv[1:]))" "$@"\n')
+    uvx.chmod(0o755)
+    repo = clone(setup(tmp_path), tmp_path / "ci", "ci@x")
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": str(tmp_path),
+           "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"), "GITHUB_OUTPUT": str(tmp_path / "output"),
+           "MODE": "pr", "BASE_REF": "master", "DAYS": "90", "MIN_GROUP": "5", "ACTION_PATH": "x"}
+    run = subprocess.run(["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True)
+    assert run.returncode == 1
+    assert "Can't list this branch's commits" in run.stderr and "::error::aimpg team pr failed" in run.stdout
+    env["BASE_REF"] = "main"
+    run = subprocess.run(["bash", "-c", script], cwd=repo, env=env, capture_output=True, text=True)
+    assert run.returncode == 0 and team.PR_MARKER in (tmp_path / "summary").read_text()
