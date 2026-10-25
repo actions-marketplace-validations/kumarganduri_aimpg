@@ -87,6 +87,23 @@ def test_cli_check_command(tmp_path, capsys):
     assert "CLAIM: rtk saves tokens" in out and "VERDICT: SUPPORTED" in out and "MATCHES" in out
 
 
+def test_cli_check_takes_a_scoreboard_upload(tmp_path, capsys):
+    from aimpg import scoreboard
+
+    record = build_record(same_model(SMALL), claim="", baseline=S.BASELINE, challenger=S.RTK, repo=".", task_mode="tests", public=False)
+    upload = scoreboard.upload_view(record)
+    path = tmp_path / "downloaded.json"  # not named by its SHA-256 here; that's fine for a check
+    path.write_bytes(scoreboard.encode(upload))
+    assert main(["verify", "--check", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "CONSISTENT" in out and "upgrade" not in out
+    upload["verdict"]["answer"] = "NOT SUPPORTED"
+    upload["runs"][0]["passed"] = not upload["runs"][0]["passed"]
+    path.write_bytes(scoreboard.encode(upload))
+    assert main(["verify", "--check", str(path)]) == 2
+    assert "PROBLEM" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("name, agent, setup_name", [
     ("rtk", "claude", "claude-code+rtk"), ("terse", "claude", "claude-code+terse"), ("haiku", "claude", "claude-code@haiku"),
     ("codex", "codex", "codex"), ("codex:gpt-6-luna", "codex", "codex@gpt-6-luna"),
