@@ -2,7 +2,7 @@
 
 **Miles per gallon for AI coding.** See what your AI coding agent really costs in energy, money and CO₂, find out what would cut it, and test whether tools and models live up to their claims on *your* code.
 
-![aimpg in 20 seconds: your receipt, the live status line, and Report No. 1's findings](https://raw.githubusercontent.com/kumarganduri/aimpg/main/docs/aimpg-clip.gif)
+![aimpg: your receipt, the live status line, and Report No. 1's findings](https://raw.githubusercontent.com/kumarganduri/aimpg/main/docs/aimpg-clip.gif)
 
 ```bash
 uvx aimpg report          # your receipt, from the Claude Code / Codex logs on your machine
