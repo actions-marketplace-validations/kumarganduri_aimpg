@@ -54,6 +54,7 @@
 - **"Energy numbers are guesses":** They're estimates with ranges, and none of the findings rely on them. Dollars come from tokens at published prices, and I checked them against my actual bill.
 - **"Shill for Anthropic?":** The study made two Anthropic models look expensive or no better, and it tested Codex. I have no affiliation.
 - **"Tests-only tasks are easy":** The tests were hidden; the agent saw only the commit message and the names the tests import. Solve rates were around 50%.
+- **"Cheaper tokens, but is the output worse?":** "Solved" means the repo's own hidden tests passed, and the headline is cost per *solved* task, so failures are priced in: if Haiku's code didn't work, its solve rate would have dropped. It solved 49% vs Sonnet's 51%. What we didn't grade is quality beyond the tests (readability, style, maintainability), and these were small-to-medium tasks; on harder work Opus solved more. Haiku also solved fewer than Sonnet in 3 of the 8 repos. So: for routine, well-tested work, try the cheaper model on your own commits (`aimpg verify`) before switching. A quality review of passing solutions is a good candidate for Report No. 2.
 - **"Why did the fresh session cost more?":** A new session writes its whole context to the prompt cache again, and cache writes are priced above cache reads. The 16% fewer tokens didn't make up for it.
 
 ---

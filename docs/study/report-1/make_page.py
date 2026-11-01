@@ -322,6 +322,8 @@ finding status:
 
 <h2>Limits</h2>
 <ul>
+<li><b>"Solved" means the project's own hidden tests pass.</b> Code style, readability and maintainability weren't graded, so two passing solutions can still differ in quality. A cheaper model that passes the tests as often may still write code you'd rather not keep.</li>
+<li>Haiku 5.5 was cheaper per solved task in all 8 repos, but it solved fewer tasks than Sonnet 5.5 in 3 of them (litestar 12 vs 15 of 21 runs, starlette 10 vs 12, homebridge 17 vs 18). Check it on your own code before switching: <code>aimpg verify</code> reruns your past commits with both models and lets your tests judge.</li>
 <li>This covers 8 Python and TypeScript repos with good test suites, and tasks small enough to judge by tests. It may not hold for large refactors or other languages.</li>
 <li>One configuration per tool, at default settings. RTK's maintainers were asked to review their setup and didn't reply by the deadline (<a href="https://github.com/rtk-ai/rtk/discussions/4511">discussion</a>).</li>
 <li>Prices change. The ratios hold only as long as the published prices behind them do.</li>
