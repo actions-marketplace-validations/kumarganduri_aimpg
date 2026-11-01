@@ -61,6 +61,29 @@ def _analyze(args):
     return parsed, attribute(parsed, since, now, refresh=args.fetch), since, now
 
 
+def _demo(args) -> int:
+    """The normal receipt on made-up data, in a temp folder; the user's logs and history are never touched."""
+    import tempfile
+
+    from aimpg import demo, durable, ledger
+    from aimpg.receipt import task_energy
+
+    if args.share:
+        print("--share isn't available with --demo: a share card should show your own numbers.")
+        return 1
+    with tempfile.TemporaryDirectory(prefix="aimpg-demo-") as tmp:
+        args.logs, _ = demo.build(Path(tmp))
+        args.codex_logs, args.cursor_usage = Path(tmp) / "no-codex", []
+        parsed, attribution, since, now = _analyze(args)
+        history = Path(tmp) / "ledger.json"
+        # the demo's two months go into a throwaway history, so "working changes" can be judged as for a real user
+        ledger.record(task_energy(attribute(parsed, now - 61 * DAY, now).tasks), history)
+        judged = durable.judge(ledger.load(history), now)
+        print("DEMO: made-up sample data (a small web app, two months of Claude Code). Run `aimpg report` for yours.\n")
+        sys.stdout.write(render(parsed, attribution, since, now, judged))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="aimpg", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"aimpg {_version()}")
@@ -69,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     _common(report_p, 30)
     report_p.add_argument("--share", type=Path, nargs="?", const=Path("aimpg-receipt.svg"), default=None, metavar="FILE",
                           help="also write a share card (totals only; SVG, plus PNG where possible)")
+    report_p.add_argument("--demo", action="store_true", help="a sample receipt from made-up data (no logs needed)")
 
     pr = sub.add_parser("pr", help="AI energy and cost of this branch's commits, as a PR comment")
     _common(pr, 90)
@@ -177,12 +201,15 @@ def main(argv: list[str] | None = None) -> int:
     from aimpg import codex_logs
     from aimpg.cursor_usage import CursorExportError
 
+    if getattr(args, "demo", False):
+        return _demo(args)
     # an existing but empty folder (a fresh Claude Code install) gets the same help as a missing one
     if not (args.cursor_usage or next(iter_log_files(args.logs), None) or next(codex_logs.iter_files(args.codex_logs), None)):
         codex_root = args.codex_logs or codex_logs.DEFAULT_ROOT
         print(f"No AI coding logs found (looked for Claude Code in {args.logs} and Codex in {codex_root}).\n"
               "  Logs somewhere else?  aimpg report --logs DIR   or   aimpg report --codex-logs DIR\n"
               "  Using Cursor?         export usage from cursor.com/dashboard, then: aimpg report --cursor-usage FILE.csv\n"
+              "  Just looking?         aimpg report --demo   (a sample receipt from made-up data)\n"
               f"  No logs yet?          see what each model costs per solved task on real commits: {REPORT_URL}")
         return 0
     for path in args.cursor_usage:

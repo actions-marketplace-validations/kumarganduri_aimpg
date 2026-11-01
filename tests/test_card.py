@@ -22,7 +22,7 @@ def test_working_change_number_leads_when_it_exists():
 
 def test_post_text_is_one_line_with_the_command():
     text = card.post_text(numbers())
-    assert "\n" not in text and "uvx aimpg report" in text and "list prices" in text
+    assert "\n" not in text and "uvx aimpg report" in text and "list prices" in text and text.endswith("#AIcodingMPG")
 
 
 def test_median_is_labelled_as_a_median():

@@ -47,7 +47,7 @@
 >
 > Limits: 8 Python/TypeScript repos with good tests; small-to-medium tasks; one config per tool; prices change. I built it with Claude Code and pay for every run myself, with no vendor affiliation. All raw records, the pre-registration and the deviations (two credit run-outs, one misclassified Codex quota error, all fixed before the analysis) are linked on the page. Any result can be rerun with one command.
 >
-> For your own numbers: `uvx aimpg report` reads your local Claude Code / Codex logs. Nothing leaves your machine.
+> For your own numbers: `uvx aimpg report` reads your local Claude Code / Codex logs. Nothing leaves your machine. No logs? `uvx aimpg report --demo` shows a sample.
 
 **Replies to have ready:**
 - **"n is small":** Agreed it's not huge. That's why it's pre-registered, why a finding needs ≥5 of 6+ repos, and why two of five comparisons are reported as "not shown". Reruns welcome; the command is on the page.
@@ -67,7 +67,8 @@
 4. "Start a fresh session after each commit"? It cost 13% MORE for the next task, despite 16% fewer tokens. Re-reading cached context is cheap; rebuilding it isn't. My own tool said otherwise, so I fixed the tool.
 5. Not shown: Codex vs Claude Code (about even), and a popular token-saver (no token saving). Reported as plainly as the wins.
 6. Pre-registered before the main run, all 984 raw records public, deviations listed (including one I found after: 10 commits were older than the cutoff; results hold without them), and any result can be rerun with one command: [report link]
-7. For your own numbers from your Claude Code / Codex logs (nothing leaves your machine): `uvx aimpg report` · github.com/kumarganduri/aimpg
+7. For your own numbers from your Claude Code / Codex logs (nothing leaves your machine): `uvx aimpg report` (no logs? `uvx aimpg report --demo`). Post your receipt with #AIcodingMPG · github.com/kumarganduri/aimpg
+8. What should Report No. 2 test? Suggest a setup or a vendor claim to check: [Report No. 2 thread link]
 
 ---
 
@@ -114,3 +115,20 @@
 
 ## Before launch: right of reply to RTK (post 3–4 days before, in discussion #4511)
 > Following up on the setup question above: the pre-registered study has run. With the setup described above (RTK 0.51.0, `rtk init --global --auto-patch --no-trust-filters`), RTK fired in 163 of 168 runs. Tokens per attempt were +1% (95% interval −6% to +9%) compared with plain Claude Code on the same tasks, so no token saving was shown on these repos. Raw records: [link to data]. If you think the setup or the measurement is unfair, reply here before [launch date] and we'll publish your response next to the results, or rerun with a setup you recommend.
+
+---
+
+## Launch day: "What should Report No. 2 test?" (open right after the report goes live)
+Discussions are off on the aimpg repo, so either turn them on (Settings → Features → Discussions; an "Ideas" category) or open this as a pinned issue. Then link it from the report page ("Next report") and the README.
+
+**Title:** What should AI Coding MPG Report No. 2 test?
+
+> Report No. 1 compared Claude Code on Haiku/Sonnet/Opus 5.5, Codex and one token-saving tool on 56 real commits ([report](https://kumarganduri.github.io/aimpg-scoreboard/report-1/)).
+>
+> Report No. 2 will test what you ask for. Reply with one suggestion per comment and 👍 the ones you want; the top suggestions go into the next pre-registration. Good suggestions name:
+> - the setup (agent, model, tool, prompt or setting), and
+> - the claim to check ("saves 60% of tokens", "solves more", "cheaper per task"), with a link if a vendor makes it.
+>
+> Vendors are welcome to suggest their own product's setup; it's tested the same way, and you get to review the setup before any run, as RTK was offered.
+>
+> Want a result sooner? Run it on your own repo with `aimpg verify` and submit it to the [scoreboard](https://kumarganduri.github.io/aimpg-scoreboard/).

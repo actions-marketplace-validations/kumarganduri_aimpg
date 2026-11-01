@@ -21,6 +21,7 @@ STATE = Path.home() / ".aimpg" / "study" / "report-1"
 REPO_URL = "https://github.com/kumarganduri/aimpg"
 PREREG = f"{REPO_URL}/blob/main/docs/study/report-1/PREREGISTRATION.md"
 PAGE_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
+NEXT_URL = ""  # launch day: the "What should Report No. 2 test?" thread
 # Authored before the 2026-07-01 cutoff but committed after it (selection compared committer dates); see the deviation list
 PRE_CUTOFF = {
     "47382933d6d6bcb0f3a6b6104c48466545172a0a", "8f00f8e627070fcdd086b1d6457acba22e82f690", "93ba0075f4881b858b61f89a753c7c10e330027e",
@@ -316,7 +317,7 @@ finding status:
 <li><b>Raw data:</b> <a href="data/">every run record</a> (outcome, tokens per request, cost and time), the selection lists, the pilot runs and <a href="data/report.json">the analysis output</a>.</li>
 <li><b>Recompute every number, for free:</b> download <a href="data/">the data folder</a> and run <code>aimpg study report plan.json --runs .</code> in it.</li>
 <li><b>Rerun a comparison on your own machine:</b> the Haiku-vs-Sonnet results for click, starlette and axios are public records on the <a href="../">scoreboard</a>; rerun one with <code>aimpg verify --rerun &lt;record&gt; --repo &lt;clone&gt;</code> (about $2–3 of API credit). Reruns by other people appear as <b>Reproduced</b>. The whole study reruns with <code>aimpg study run plan.json</code>.</li>
-<li><b>Code:</b> <a href="{REPO_URL}">aimpg</a> (MIT), with <code>aimpg/replay/study.py</code> for the statistics.</li>
+<li><b>Code:</b> <a href="{REPO_URL}">aimpg</a> (MIT), with <code>aimpg/replay/study.py</code> for the statistics.</li>{f'<li><b>What should Report No. 2 test?</b> <a href="{NEXT_URL}">Suggest a setup or a claim to check</a>; the most-wanted ones go into the next pre-registration.</li>' if NEXT_URL else ''}
 </ul>
 
 <h2>Limits</h2>

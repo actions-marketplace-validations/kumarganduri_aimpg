@@ -2,8 +2,11 @@
 
 **Miles per gallon for AI coding.** See what your AI coding agent really costs in energy, money and CO₂, find out what would cut it, and test whether tools and models live up to their claims on *your* code.
 
+![aimpg in 20 seconds: your receipt, the live status line, and Report No. 1's findings](https://raw.githubusercontent.com/kumarganduri/aimpg/main/docs/aimpg-clip.gif)
+
 ```bash
-uvx aimpg report
+uvx aimpg report          # your receipt, from the Claude Code / Codex logs on your machine
+uvx aimpg report --demo   # no logs? a sample receipt from made-up data
 ```
 
 **[Report No. 1: what AI coding costs per solved task](https://kumarganduri.github.io/aimpg-scoreboard/report-1/)**: 984 pre-registered reruns of 56 real commits. Haiku 5.5 was about 6× cheaper per solved task than Sonnet 5.5 while solving almost as much, and starting a fresh session for the next task cost 13% more than continuing.
@@ -55,7 +58,7 @@ Team export? Add `--cursor-user "Your Name"` to count only your rows.
 ### 1. See your AI footprint in terms you can picture
 `aimpg report` reads the Claude Code (and Codex CLI) logs already on your machine and ties every AI request to the git commit it produced. Energy is shown as an honest range and translated into kettles, phone charges, EV kilometres and CO₂. Money is the cost at Anthropic's and OpenAI's API list prices; on a subscription you pay less, so read it as the value of the work, not your bill.
 
-`aimpg report --share` also writes a card to post, with totals only (no repo names, commit messages or code), and prints a one-line post to go with it:
+`aimpg report --share` also writes a card to post, with totals only (no repo names, commit messages or code), and prints a one-line post to go with it. If you post yours, tag it **#AIcodingMPG**:
 
 ![aimpg share card](https://raw.githubusercontent.com/kumarganduri/aimpg/main/docs/receipt-card.png)
 

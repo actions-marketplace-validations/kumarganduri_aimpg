@@ -97,7 +97,7 @@ def post_text(n: CardNumbers) -> str:
             if n.cost_per_working is not None else
             f"My AI coding: {_money(n.typical_usd)} {n.typical_label}. " if n.typical_usd else "My AI coding. ")
     return (f"{head}Last {n.days} days: {_money(n.usd)} over {n.commits} commits, at API list prices. "
-            "Measured from my own Claude Code/Codex logs with aimpg. See yours: uvx aimpg report")
+            "Measured from my own Claude Code/Codex logs with aimpg. See yours: uvx aimpg report #AIcodingMPG")
 
 
 CHROMES = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
