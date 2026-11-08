@@ -9,8 +9,15 @@ jobs:
     permissions:
       id-token: write  # PyPI trusted publishing, no API token stored
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6
+      - name: Tag matches the version, and the tagged commit is on main
+        run: |
+          version=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          test "${GITHUB_REF_NAME}" = "v${version}" || { echo "::error::tag ${GITHUB_REF_NAME} but pyproject says ${version}"; exit 1; }
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main || { echo "::error::tagged commit is not on main"; exit 1; }
       - run: git config --global user.email ci@example.com && git config --global user.name CI
       - run: uv run --group dev pytest -q
       - run: uv build

@@ -3,7 +3,9 @@
 Each tip is a counterfactual computed with the same energy and price code as
 the receipt, so it's never generic advice:
 
-1. Old conversation re-read. Every request re-reads the session's whole
+1. Old conversation re-read (shown as a fact, no longer as a saving: Report No. 1 measured
+   a fresh session costing 13% more for the next task, because it has to write its context
+   into the cache again, which is priced above re-reading it). Every request re-reads the session's whole
    context. After a commit, most of that history is no longer needed. If the
    session had restarted after each commit, the context carried over from
    before that commit would not be re-read:
@@ -27,6 +29,7 @@ the receipt, so it's never generic advice:
 from __future__ import annotations
 
 import bisect
+import re
 from collections import defaultdict
 from dataclasses import dataclass, replace
 
@@ -134,6 +137,21 @@ def model_size_tip(requests: list[Request]) -> Tip | None:
     )
 
 
+STUDY_FRESH = ("re-reading that cached context is cheap: in aimpg's Report No. 1 (8 repos, 16 task pairs × 3 repeats), "
+               "starting a fresh session for the next task cost 13% more, not less")
+
+
+def carried_share(requests: list[Request], attribution: Attribution) -> float | None:
+    """Share of tokens that were conversation carried over from before the last commit (measured)."""
+    tip = fresh_session_tip(requests, attribution)
+    if tip is None:
+        return None
+    m = re.match(r"(\d+)%", tip.measured)
+    return int(m.group(1)) / 100 if m else None
+
+
 def tips(requests: list[Request], attribution: Attribution) -> list[Tip]:
-    found = [t for t in (fresh_session_tip(requests, attribution), model_size_tip(requests)) if t]
+    """Savings worth acting on. The fresh-session tip was removed after Report No. 1 measured it:
+    a fresh session cost 13% more for the next task (cache writes cost more than cache reads)."""
+    found = [t for t in (model_size_tip(requests),) if t]
     return sorted(found, key=lambda t: t.saving_usd, reverse=True)

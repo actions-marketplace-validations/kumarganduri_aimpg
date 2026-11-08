@@ -118,3 +118,25 @@ def test_export_with_cloud_agent_columns_and_no_dollar_costs(tmp_path):
     (req,) = parse_cursor([export(tmp_path / "u.csv", [r], header)]).requests
     assert req.model == "grok-bot-cua" and req.usage.output == 11329
     assert usage_cost(req.usage, req.model) is None  # counted as unpriced, never guessed
+
+
+def test_padded_headers_and_bad_cells(tmp_path):
+    header = [f" {h} " for h in HEADER]  # re-saved through a spreadsheet tool
+    rows = [row(1_000_000), row(1_000_100, write=-1000), row(1_000_200) | {"Output Tokens": "inf"}]
+    with open(tmp_path / "u.csv", "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(header)
+        for r in rows:
+            w.writerow([r.get(h.strip(), "") for h in header])
+    parsed = parse_cursor([tmp_path / "u.csv"])
+    assert len(parsed.requests) == 2 and parsed.stats["corrupt_rows"] == 1  # negative row dropped, "inf" read as 0
+    (tmp_path / "utf16.csv").write_bytes(",".join(HEADER).encode("utf-16"))
+    with pytest.raises(CursorExportError, match="not UTF-8"):
+        parse_cursor([tmp_path / "utf16.csv"])
+
+
+def test_cli_no_logs_points_somewhere(tmp_path, capsys):
+    # A first-time user with no logs gets next steps, not a dead end
+    assert main(["report", "--logs", str(tmp_path / "none"), "--codex-logs", str(tmp_path / "none2")]) == 0
+    out = capsys.readouterr().out
+    assert "--cursor-usage" in out and "--codex-logs" in out and "report-1" in out

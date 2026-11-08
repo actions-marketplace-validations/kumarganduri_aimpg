@@ -47,3 +47,21 @@ def test_branch_commits_lists_commits_since_base(tmp_path):
     repo.git("checkout", "-q", "-b", "feature")
     sha = repo.commit({"a.py": "x = 2\n"}, "change", days_ago(2))
     assert share.branch_commits(repo.path, "main") == [sha]
+
+
+def test_branch_commits_leaves_out_merge_commits(tmp_path):
+    repo = Repo(tmp_path / "r")
+    repo.commit({"a.py": "x = 1\n"}, "base", days_ago(3))
+    repo.git("checkout", "-q", "-b", "feature")
+    sha = repo.commit({"a.py": "x = 2\n"}, "change", days_ago(2))
+    repo.git("checkout", "-q", "-b", "pr-merge", "main")
+    repo.git("merge", "-q", "--no-ff", "-m", "Merge feature", "feature")  # like GitHub's refs/pull/N/merge
+    assert share.branch_commits(repo.path, "main") == [sha]
+
+
+def test_csv_counts_a_split_session_once_not_once_per_commit():
+    t = task("a" * 40, 1_790_000_000, 0)
+    for i in range(8):
+        t.add(Request(f"r{i}", "s", "claude-sonnet-5-5", 1_790_000_000 - 10 + i, Usage(output=300), "/repo/app"), 0.25)
+    (row,) = share.csv_rows(Attribution(tasks=[t]))
+    assert row["ai_requests"] == 2

@@ -18,7 +18,7 @@ from aimpg.model import ParseResult, Task
 
 STATUS_ORDER = [s.value for s in Status] + ["git error"]
 KEPT = {Status.KEPT.value, Status.KEPT_SQUASH.value}
-METHOD_URL = "https://github.com/kumarganduri/aimpg#how-energy-is-estimated"
+METHOD_URL = "https://github.com/kumarganduri/aimpg#how-it-works"
 
 
 @dataclass
@@ -74,7 +74,7 @@ def summary(in_window, energies: list[TaskEnergy]) -> list[str]:
             f"  {label + ':':<24}{_fmt_wh(typical)} ≈ {equivalence.phrase(typical, 'phone')}"
             f" · {_usd(statistics.median(e.usd for e in pool))}",
         ]
-        top = max(with_work, key=lambda e: e.wh.mid)
+        top = max(with_work, key=lambda e: e.usd)
         extra = f" (+{_fmt_wh(top.lead_up)} of earlier work)" if top.lead_up.high > 0 else ""
         lines += [
             f"  {'Most expensive commit:':<24}{Path(top.task.repo).name} {top.task.sha[:7]} \"{top.task.subject[:50]}\"",
@@ -97,7 +97,17 @@ def _day(ts: float) -> str:
 def working_changes(judged) -> list[str]:
     from aimpg.durable import MATURE_AFTER, day
 
-    lines = ["WORKING CHANGES (commits that shipped and lasted 30 days)"]
+    # Judged from aimpg's whole history (the ledger), not just this window: a
+    # commit can only be judged 30 days after it was made.
+    records = judged.judged + judged.too_new + judged.unreadable
+    started = min((r["ts"] for r in records), default=None)  # the oldest commit judged, not when aimpg first saw it
+    lines = ["WORKING CHANGES (commits that shipped and lasted 30 days"
+             + (f"; all history since {day(started)}, not just this window)" if started else ")")]
+    if judged.unreadable:
+        why = "; ".join(f"{Path(repo).name}: {err.splitlines()[0][:80] if err else 'git error'}"
+                        for repo, err in sorted(judged.errors.items()))
+        n = len(judged.unreadable)
+        lines.append(f"  {n} commit{'s' if n != 1 else ''} in repos aimpg couldn't read {'are' if n != 1 else 'is'} left out ({why})")
     if not judged.judged:
         first = judged.first_judgeable()
         when = f" on {day(first + MATURE_AFTER)}" if first else " once your AI-assisted commits are 30 days old"
@@ -129,6 +139,13 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
     add("")
     if in_window:
         lines.extend(summary(in_window, energies))
+        from aimpg.coach import STUDY_FRESH, carried_share
+
+        share = carried_share(in_window, attribution)
+        if share:
+            add("")
+            add(f"  {share:.0%} of your agents' tokens were conversation carried over from before your last commit;")
+            add(f"  {STUDY_FRESH}.")
         found = coach_tips(in_window, attribution)
         if found:
             add("")
@@ -148,7 +165,8 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
     skipped = parsed.stats.get("skipped_requests", 0) + parsed.stats.get("corrupt_rows", 0)
     add(
         f"Read {parsed.stats.get('unique_requests', 0):,} AI requests from {parsed.stats.get('files', 0)} log files "
-        f"(coverage {parsed.coverage:.1%}, {skipped} rows skipped, {len(parsed.versions)} agent versions)."
+        f"(coverage {parsed.coverage:.1%}, {skipped} rows skipped, {len(parsed.versions)} agent versions"
+        + (f", {parsed.stats['unreadable_files']} files unreadable" if parsed.stats.get("unreadable_files") else "") + ")."
     )
     assumed = sorted({r.model for r in in_window if model_class(r.model)[1]})
     if assumed:
@@ -156,7 +174,8 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
     add("")
 
     if not in_window:
-        add("No AI requests in this window.")
+        add("No AI requests in this window."
+            + (" Older logs were found: try a longer window with --days N." if parsed.requests else ""))
         return "\n".join(lines) + "\n"
 
     add(f"{'AI energy in window ':.<46} {_fmt_wh(everything)}  ({len(in_window):,} requests)")
@@ -204,17 +223,19 @@ def render(parsed: ParseResult, attribution: Attribution, since: float, now: flo
         for e in ranked[:3]:
             extra = f" +{_fmt_wh(e.lead_up)}" if e.lead_up.high > 0 else ""
             add(f"  {_fmt_wh(e.wh):>24}{extra}  {Path(e.task.repo).name} {e.task.sha[:7]} {e.task.subject[:45]}")
-        if len(ranked) > 3:
+        if len(ranked) > 6:  # fewer, and the two lists would overlap
             add("Leanest commits:")
-            for e in ranked[-3:]:
+            for e in reversed(ranked[-3:]):
                 add(f"  {_fmt_wh(e.wh):>24}  {Path(e.task.repo).name} {e.task.sha[:7]} {e.task.subject[:50]}")
         if shared:
             add(f"  ({shared} commits were made right after another with no AI requests in between)")
         add("")
 
-    stale = [Path(repo).name for repo, info in attribution.repos.items() if info.error]
+    stale = sorted((Path(repo).name, info.error) for repo, info in attribution.repos.items() if info.error)
     if stale:
-        add(f"Git problems (statuses unknown): {', '.join(sorted(stale))}")
+        add("Git problems (statuses unknown):")
+        for name, err in stale:
+            add(f"  {name}: {err.splitlines()[0][:100]}")
     add("")
     add(
         f"Energy is a low–high range (factors v{load_factors()['version']}): model sizes are not disclosed, "

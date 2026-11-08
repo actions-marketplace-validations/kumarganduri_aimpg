@@ -5,12 +5,14 @@ The replay starts from c0 with c1's tests hidden; Phase C runs them.
 """
 
 import json
+import os
 import shutil
 import subprocess
 import time
 from pathlib import Path
 
 import pytest
+from conftest import REAL_HOME, touched
 
 from aimpg.replay import sandbox
 from aimpg.replay.run import Batch, Config, load_results, make_solution, run_one
@@ -266,18 +268,36 @@ def test_verify_record_from_real_runs_is_private_and_rechecks(prepared, tmp_path
     assert check(record)[0]
 
 
+# The real agent CLIs run only when asked (AIMPG_REAL_AGENT_TESTS=1): they call OpenAI/Anthropic,
+# and a plain `pytest` once left codex's arg0 helper folder in the developer's real ~/.codex.
+REAL_AGENTS = os.environ.get("AIMPG_REAL_AGENT_TESTS") == "1"
+
+
+def _real_codex_state() -> set[Path]:
+    """What's in the real ~/.codex (top level, and tmp/ where the helper folder appeared)."""
+    root = REAL_HOME / ".codex"
+    n = len(touched)
+    found = set(root.iterdir()) | set((root / "tmp").rglob("*")) if root.is_dir() else set()
+    del touched[n:]  # this look is the check itself, not a leak
+    return found
+
+
+@pytest.mark.skipif(not REAL_AGENTS, reason="runs the real codex CLI; set AIMPG_REAL_AGENT_TESTS=1")
 @pytest.mark.skipif(shutil.which("codex") is None, reason="codex not installed")
 def test_real_codex_reaches_openai_through_the_sandbox_and_key_file_is_deleted(prepared):
     """Free: a fake key gets OpenAI's 401, which proves login, sandbox and proxy all work."""
     from aimpg.replay.setups import codex
 
     layout, commit, _, _ = prepared
+    before = _real_codex_state()
     rec = run_one(commit, codex(), 0, layout, cfg(keys={"OPENAI_API_KEY": "sk-not-a-real-key-000"}, timeout=180))
     print(rec.outcome, rec.note)
     assert rec.outcome == "account_error", (rec.outcome, rec.note)
     assert not list(layout.root.rglob("auth.json"))  # the key never stays on disk
+    assert _real_codex_state() <= before  # a run never writes the user's own ~/.codex
 
 
+@pytest.mark.skipif(not REAL_AGENTS, reason="runs the real claude CLI; set AIMPG_REAL_AGENT_TESTS=1")
 @pytest.mark.skipif(shutil.which("claude") is None, reason="claude not installed")
 def test_real_claude_code_starts_in_the_sandbox_and_reaches_anthropic(prepared):
     """Free: a fake key gets Anthropic's 401, which proves Claude Code starts and talks through the proxy."""

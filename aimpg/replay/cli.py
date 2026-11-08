@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -87,9 +88,24 @@ def add_parser(sub) -> None:
 
 
 def _state(repo: Path) -> Path:
-    d = STATE / repo.resolve().name
+    """This repo's selections and results: named by the folder plus a hash of its full path, so
+    ~/work/api and ~/oss/api never share (or run) each other's commits."""
+    repo = repo.resolve()
+    d = STATE / f"{repo.name}-{hashlib.sha256(str(repo).encode()).hexdigest()[:10]}"
+    legacy = STATE / repo.name  # before 0.7.1: the folder name only; kept while its commits are this repo's
+    if not d.exists() and _selected_from(legacy, repo):
+        return legacy
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _selected_from(d: Path, repo: Path) -> bool:
+    path = d / "selected.jsonl"
+    try:
+        commits = select.load(path) if path.is_file() else []
+    except (OSError, ValueError, TypeError):
+        return False
+    return bool(commits) and all(os.path.realpath(c.repo) == str(repo) for c in commits)
 
 
 def main(args: argparse.Namespace) -> int:
@@ -97,8 +113,15 @@ def main(args: argparse.Namespace) -> int:
     if cmd == "stats":
         return _stats(args.results, args.baseline)
     if cmd == "select":
-        return _select(args.repo.resolve(), args)
+        return 1 if _unsandboxable() else _select(args.repo.resolve(), args)
     return _paid([r.resolve() for r in args.repos], args, calibrate=(cmd == "calibrate"), models=(cmd == "models"))
+
+
+def _unsandboxable() -> bool:
+    reason = sandbox.unavailable_reason()
+    if reason:
+        print(f"Can't sandbox replays on this machine: {reason}")
+    return reason is not None
 
 
 def _select(repo: Path, args) -> int:
@@ -147,6 +170,8 @@ def _paid(repos: list[Path], args, *, calibrate: bool, models: bool = False) -> 
     n_commits, repeats = (2, 2) if calibrate else (args.commits, args.repeats)
     if len(commits) < n_commits:
         print(f"Only {len(commits)} replayable commits selected; need {n_commits}.")
+        return 1
+    if _unsandboxable():  # before the cost question, not after a yes
         return 1
     chosen = random.Random(7).sample(commits, n_commits)
     done = runner.completed(args.resume) if getattr(args, "resume", None) else set()

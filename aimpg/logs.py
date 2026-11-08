@@ -34,7 +34,7 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 SYNTHETIC_MODEL = "<synthetic>"
 
 # `git commit` as a command, not text inside a pipe like `git log | grep commit`.
-_GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]*?\bcommit\b")
+_GIT_COMMIT = re.compile(r"\bgit\b[^|;&\n]{0,200}?\bcommit\b")  # bounded: long one-line commands stay fast
 
 
 def parse_ts(value: str | None) -> float | None:
@@ -46,10 +46,12 @@ def parse_ts(value: str | None) -> float | None:
         return None
 
 
-def iter_log_files(root: Path = DEFAULT_ROOT) -> Iterator[Path]:
+def iter_log_files(root: Path | None = None) -> Iterator[Path]:
+    root = root or DEFAULT_ROOT  # looked up at call time so tests can point it elsewhere
     if not root.is_dir():
         return
-    yield from sorted(root.rglob("*.jsonl"))
+    # rglob also matches directories and dangling symlinks named *.jsonl
+    yield from sorted(p for p in root.rglob("*.jsonl") if p.is_file())
 
 
 def commit_cwd(command: str, row_cwd: str) -> str | None:
@@ -176,7 +178,7 @@ def _usage(raw: object) -> Usage | None:
         # session costs: 58/60 per-model totals match only when it's added).
         details = raw.get("output_tokens_details") if isinstance(raw.get("output_tokens_details"), dict) else {}
         values[3] += int(details.get("thinking_tokens") or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: Infinity / 1e400
         return None
     if any(v < 0 for v in values) or one_hour < 0:
         return None
@@ -197,7 +199,7 @@ def _worth_parsing(line: bytes, pending_commits: dict[str, CommitCall]) -> bool:
     if b'"usage"' in line or b'"tool_use"' in line:
         return True
     if b'"tool_result"' in line:
-        return any(m.decode() in pending_commits for m in _TOOL_USE_ID.findall(line))
+        return any(m.decode(errors="replace") in pending_commits for m in _TOOL_USE_ID.findall(line))
     return False
 
 
@@ -210,11 +212,19 @@ def parse_logs(files: Iterable[Path]) -> ParseResult:
 
     for path in files:
         stats["files"] += 1
-        with open(path, "rb") as fh:
+        try:
+            fh = open(path, "rb")
+        except OSError:  # deleted since it was listed, permission denied, ...
+            stats["unreadable_files"] += 1
+            continue
+        with fh:
             for line in fh:
                 if not line.strip():
                     continue
                 stats["rows"] += 1
+                if not line.rstrip().endswith(b"}"):  # cut off mid-write: would slip past the cheap filter below
+                    stats["corrupt_rows"] += 1
+                    continue
                 if not _worth_parsing(line, pending_commits):
                     continue
                 try:

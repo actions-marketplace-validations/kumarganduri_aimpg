@@ -8,7 +8,6 @@ Writes an SVG (always) and a PNG next to it when the machine can render one
 from __future__ import annotations
 
 import html
-import re
 import shutil
 import statistics
 import subprocess
@@ -47,14 +46,11 @@ def numbers(parsed, attribution, since: float, now: float, judged=None) -> CardN
     pool = kept if len(kept) >= 5 else with_work
     typical = statistics.median(e.usd for e in pool) if pool else None
     found = coach_tips(in_window, attribution)
-    tip = None
-    fresh = next((t for t in found if t.title.startswith("Start a fresh session")), None)
-    pct = re.match(r"\d+%", fresh.measured) if fresh else None
-    if pct:
-        tip = f"{pct.group(0)} of my agents' tokens re-read conversation from before my last commit"
+    # coach tips speak to the reader ("your agents"); the card speaks as its owner
+    tip = found[0].measured.replace("your ", "my ") if found else None
     cpw = judged.cost_per_durable() if judged is not None and judged.judged else None
     return CardNumbers(round((now - since) / 86400), usd, len(energies), (wh.low / 1000, wh.high / 1000), typical,
-                       "per kept commit" if pool is kept else "per commit", tip, cpw)
+                       "median per kept commit" if pool is kept else "median per commit", tip, cpw)
 
 
 def _money(x: float) -> str:
@@ -64,7 +60,7 @@ def _money(x: float) -> str:
 def svg(n: CardNumbers) -> str:
     e = html.escape
     big = _money(n.cost_per_working) if n.cost_per_working is not None else (_money(n.typical_usd) if n.typical_usd else "—")
-    big_label = "per working change (still standing after 30 days)" if n.cost_per_working is not None else n.typical_label
+    big_label = "per working change (all history; still standing after 30 days)" if n.cost_per_working is not None else n.typical_label
     kwh = f"{n.kwh[0]:,.1f}–{n.kwh[1]:,.0f} kWh" if n.kwh[1] >= 10 else f"{n.kwh[0]:,.2f}–{n.kwh[1]:,.1f} kWh"
     rows = [("AI spend at API list prices", _money(n.usd)), ("Commits made with AI help", f"{n.commits:,}"),
             ("Energy (estimate, range)", kwh)]
@@ -72,7 +68,7 @@ def svg(n: CardNumbers) -> str:
         f'<text x="72" y="{392 + i * 52}" class="k">{e(k)}</text><text x="1128" y="{392 + i * 52}" class="v" text-anchor="end">{e(v)}</text>'
         f'<line x1="72" y1="{408 + i * 52}" x2="1128" y2="{408 + i * 52}" class="rule"/>'
         for i, (k, v) in enumerate(rows))
-    tip = f'<text x="72" y="566" class="tip">↺ {e(n.tip)}</text>' if n.tip else ""
+    tip = f'<text x="72" y="566" class="tip">{e(n.tip)}</text>' if n.tip else ""
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">
 <style>
 .bg{{fill:#10292a}} .k{{font:500 26px "IBM Plex Sans",Helvetica,Arial,sans-serif;fill:#9fb9b2}}
@@ -96,11 +92,12 @@ def svg(n: CardNumbers) -> str:
 
 
 def post_text(n: CardNumbers) -> str:
-    head = (f"My AI coding costs {_money(n.cost_per_working)} per working change"
+    # The working-change cost comes from all judged history, the totals from this window: keep them apart.
+    head = (f"My AI coding costs {_money(n.cost_per_working)} per working change (all my judged commits, 30+ days old). "
             if n.cost_per_working is not None else
-            f"My AI coding: {_money(n.typical_usd)} {n.typical_label}" if n.typical_usd else "My AI coding")
-    return (f"{head} ({_money(n.usd)} over {n.commits} commits in {n.days} days, at API list prices). "
-            "Measured from my own Claude Code/Codex logs with aimpg. See yours: uvx aimpg report")
+            f"My AI coding: {_money(n.typical_usd)} {n.typical_label}. " if n.typical_usd else "My AI coding. ")
+    return (f"{head}Last {n.days} days: {_money(n.usd)} over {n.commits} commits, at API list prices. "
+            "Measured from my own Claude Code/Codex logs with aimpg. See yours: uvx aimpg report #AIcodingMPG")
 
 
 CHROMES = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -147,5 +144,6 @@ def to_png(svg_path: Path) -> Path | None:
 
 def write(n: CardNumbers, path: Path) -> tuple[Path, Path | None]:
     path = path.with_suffix(".svg")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(svg(n))
     return path, to_png(path)

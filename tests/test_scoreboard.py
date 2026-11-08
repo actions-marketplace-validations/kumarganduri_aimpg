@@ -18,14 +18,16 @@ def run(commit, setup, *, passed=True, usages=None, cost=0.10, model=SONNET, rep
                   passed, model, cost, 33.0, usages, "ok", "", True, "claude")
 
 
-def record(tmp_path, *, challenger=S.TERSE, chal_cost=0.10, chal_pass=True, public=False, n=3):
-    repo = tmp_path / f"repo{len(list(tmp_path.iterdir()))}"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    subprocess.run(["git", "-C", str(repo), "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", f"root {repo.name}"], check=True)
-    runs = [run(f"{i:040x}", "claude-code") for i in range(n)] + [
-        run(f"{i:040x}", challenger.name, cost=chal_cost, passed=chal_pass) for i in range(n)]
-    return build_record(runs, claim="", baseline=S.BASELINE, challenger=challenger, repo=str(repo), task_mode="tests", public=public)
+def record(tmp_path, *, challenger=S.TERSE, chal_cost=0.10, chal_pass=True, public=False, n=3,
+           baseline=S.BASELINE, chal_model=SONNET, repo=None):
+    if repo is None:
+        repo = tmp_path / f"repo{len(list(tmp_path.iterdir()))}"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", f"root {repo.name}"], check=True)
+    runs = [run(f"{i:040x}", baseline.name) for i in range(n)] + [
+        run(f"{i:040x}", challenger.name, cost=chal_cost, passed=chal_pass, model=chal_model) for i in range(n)]
+    return build_record(runs, claim="", baseline=baseline, challenger=challenger, repo=str(repo), task_mode="tests", public=public)
 
 
 def put(records_dir, login, upload):
@@ -114,6 +116,75 @@ def test_validation_rechecks_the_verdict_against_the_runs(tmp_path):
     assert any("solves fewer" in p for p in problems(tmp_path, up))
 
 
+def test_supported_needs_the_cost_arithmetic_even_when_the_ratio_is_left_out(tmp_path):
+    up = valid(tmp_path, challenger=S.with_model("haiku"), chal_model=S.MODELS["haiku"], chal_cost=0.05)
+    assert up["verdict"]["answer"] == "SUPPORTED" and problems(tmp_path, up) == []
+    for r in up["runs"]:
+        if r["setup"] == "claude-code@haiku":
+            r["cost_usd"] = 5.0  # the runs now say it costs 50x more
+    for ratio in (None, 0, 50.0):  # left out, zero, or honest: SUPPORTED contradicts the runs
+        up["verdict"]["cost_ratio"] = ratio
+        assert problems(tmp_path, up), ratio
+    up["verdict"]["energy"] = {"verdict": "uses less", "effect_mid": -0.5, "interval": [-0.6, -0.4]}
+    assert any("energy verdict belongs" in p for p in problems(tmp_path, up))  # energy can't rank different models
+
+
+def test_validation_types_are_strict(tmp_path):
+    up = valid(tmp_path)
+
+    def edited(change):
+        bad = json.loads(json.dumps(up))
+        change(bad)
+        return problems(tmp_path, bad)
+
+    for rerun_of in (["a"], {"a": 1}, "../../etc/passwd", "0" * 63):
+        assert any("rerun_of" in p for p in edited(lambda u: u.update(rerun_of=rerun_of))), rerun_of
+    assert any("--public" in p for p in edited(lambda u: u.update(rerun_of="0" * 64)))  # reruns are public
+    assert edited(lambda u: u["runs"][0].update(cost_usd=True))
+    assert edited(lambda u: u["runs"][0].update(wh=[-1e9, 1e12]))
+    assert edited(lambda u: u["runs"][0].pop("cost_known"))  # a problem, not a KeyError
+    assert edited(lambda u: u["runs"].append("run"))
+    assert edited(lambda u: u["runs"][0].update(repeat=[0]))
+    assert edited(lambda u: u.update(verdict=["SUPPORTED"]))
+    assert edited(lambda u: u.update(baseline="claude-code"))
+    assert any("cost_ratio" in p for p in edited(lambda u: u["verdict"].update(cost_ratio="0.11")))
+    data = sb.encode(up).replace(b'"cost_usd": 0.1,', b'"cost_usd": NaN,', 1)
+    assert b"NaN" in data and any("not JSON" in p for p in sb.validate_upload(tmp_path / "me" / sb.file_name(data), data))
+
+
+def test_private_uploads_carry_only_known_fields(tmp_path):
+    up = valid(tmp_path)
+    up["notes"] = "github.com/acme/secret"
+    up["runs"][0]["prompt"] = "fix the billing bug"
+    found = problems(tmp_path, up)
+    assert any("notes" in p for p in found) and any("prompt" in p for p in found)
+    upper = valid(tmp_path)
+    upper["affiliation"] = "ABCDEF0123" * 4  # a commit id in upper case
+    assert any("commit shas" in p for p in problems(tmp_path, upper))
+    lookalike = valid(tmp_path)
+    lookalike["challenger"]["name"] = "сlaude-code+terse"  # Cyrillic с
+    assert any("letters, digits" in p for p in problems(tmp_path, lookalike))
+
+
+def test_two_private_custom_setups_keep_distinct_names(tmp_path):
+    rec = record(tmp_path, baseline=S.custom("acme-internal-prompt", append_prompt="a"),
+                 challenger=S.custom("acme-hooks", append_prompt="b"))
+    up = sb.upload_view(rec)
+    assert (up["baseline"]["name"], up["challenger"]["name"]) == ("custom-1", "custom-2")
+    assert {r["setup"] for r in up["runs"]} == {"custom-1", "custom-2"} and problems(tmp_path, up) == []
+    d = tmp_path / "records"
+    put(d, "ann", up)
+    assert sb.aggregate(sb.load(d))["collecting"] == []  # private names are never a public claim
+
+
+def test_private_upload_repo_id_differs_from_the_public_one(tmp_path):
+    public = sb.upload_view(record(tmp_path, public=True))
+    private = sb.upload_view(record(tmp_path, repo=tmp_path / "repo0"))
+    assert public["repo_id"] and private["repo_id"] and public["repo_id"] != private["repo_id"]
+    again = sb.upload_view(record(tmp_path, repo=tmp_path / "repo0"))
+    assert again["repo_id"] == private["repo_id"]  # still one repo across your private uploads
+
+
 # ---------------------------------------------------------------- aggregation
 
 def many(tmp_path, records_dir, logins, **kw):
@@ -166,6 +237,38 @@ def test_tiers_from_independent_reruns(tmp_path):
     assert sb.tiers(sb.load(d))[original] == "disputed"
 
 
+def test_a_rerun_counts_only_if_it_reran_that_record(tmp_path):
+    d = tmp_path / "records"
+    original = put(d, "ann", sb.upload_view(record(tmp_path, public=True)))
+    private = put(d, "ann", sb.upload_view(record(tmp_path)))
+    for login, kw in (("bob", {"challenger": S.RTK}), ("cat", {"n": 4}), ("dan", {})):
+        other = sb.upload_view(record(tmp_path, public=True, **kw))  # another claim, other commits, a private target
+        other["rerun_of"] = private if login == "dan" else original
+        put(d, login, other)
+    tier = sb.tiers(sb.load(d))
+    assert tier[original] == "self-reported" and tier[private] == "self-reported"
+    real = sb.upload_view(record(tmp_path, public=True))
+    real["rerun_of"] = original
+    put(d, "eve", real)
+    assert sb.tiers(sb.load(d))[original] == "reproduced"
+    bad = {"submitter": "x", "sha": "1" * 64, "upload": {**real, "rerun_of": ["a"]}}
+    assert sb.tiers(sb.load(d) + [bad])[original] == "reproduced"  # a malformed rerun_of doesn't crash the build
+
+
+def test_a_copied_repo_id_cannot_replace_someone_elses_record(tmp_path):
+    d = tmp_path / "records"
+    many(tmp_path, d, ["ann", "ann", "bob", "bob", "cat", "cat"], chal_cost=0.05)
+    victim = next(e for e in sb.load(d) if e["submitter"] == "ann")["upload"]
+    copy = sb.upload_view(record(tmp_path, chal_pass=False))
+    copy.update(repo_id=victim["repo_id"], week="2026-W50")
+    path = d / "mal" / sb.file_name(sb.encode(copy))
+    path.parent.mkdir()
+    path.write_bytes(sb.encode(copy))
+    (row,) = sb.aggregate(sb.load(d))["self_reported"]
+    assert row["answers"]["NOT PROVEN"] == 6  # ann's record still counts
+    assert main(["scoreboard", "validate", str(path), "--author", "mal", "--records", str(d)]) == 1
+
+
 def test_page_escapes_and_labels(tmp_path):
     d = tmp_path / "records"
     up = sb.upload_view(record(tmp_path, public=True))
@@ -199,3 +302,15 @@ def test_submit_refuses_an_edited_record(tmp_path, monkeypatch, capsys):
     path.write_text(json.dumps(rec))
     assert main(["submit", str(path), "--to-dir", str(tmp_path), "--login", "ann", "--yes"]) == 1
     assert "fails `aimpg verify --check`" in capsys.readouterr().out
+
+
+def test_submit_without_a_terminal_sends_nothing(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "r.record.json"
+    path.write_text(json.dumps(record(tmp_path)))
+
+    def closed(prompt=""):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", closed)
+    assert main(["submit", str(path), "--to-dir", str(tmp_path / "board"), "--login", "ann"]) == 1
+    assert "Nothing was sent" in capsys.readouterr().out and not (tmp_path / "board").exists()
