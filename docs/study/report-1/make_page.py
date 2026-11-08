@@ -21,7 +21,7 @@ STATE = Path.home() / ".aimpg" / "study" / "report-1"
 REPO_URL = "https://github.com/kumarganduri/aimpg"
 PREREG = f"{REPO_URL}/blob/main/docs/study/report-1/PREREGISTRATION.md"
 PAGE_URL = "https://kumarganduri.github.io/aimpg-scoreboard/report-1/"
-NEXT_URL = ""  # launch day: the "What should Report No. 2 test?" thread
+NEXT_URL = "https://github.com/kumarganduri/aimpg/discussions/2"  # "What should Report No. 2 test?"
 # Authored before the 2026-07-01 cutoff but committed after it (selection compared committer dates); see the deviation list
 PRE_CUTOFF = {
     "47382933d6d6bcb0f3a6b6104c48466545172a0a", "8f00f8e627070fcdd086b1d6457acba22e82f690", "93ba0075f4881b858b61f89a753c7c10e330027e",
