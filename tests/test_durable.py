@@ -75,3 +75,62 @@ def test_ledger_keeps_the_fuller_record(tmp_path):
     assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 5
     ledger.record([energy(8)], path)
     assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 8
+
+
+def test_record_separator_in_a_later_file_keeps_a_shipped_commit_durable(repo):
+    sha = repo.commit({"good.py": LINES}, "feat: good", days_ago(40))
+    repo.commit({"b.txt": "data\x1eother\n"}, "fixture", days_ago(1))
+    j = durable.judge({"k": rec(repo, sha, days_ago(40))})
+    assert [r["sha"] for r in j.durable] == [sha] and j.not_kept == [] and j.errors == {}
+
+
+def test_repo_git_cannot_read_is_left_unjudged(repo, tmp_path):
+    good = repo.commit({"good.py": LINES}, "feat: good", days_ago(40))
+    gone = Repo(tmp_path / "gone")
+    lost = gone.commit({"a.py": LINES}, "feat: lost", days_ago(40))
+    gone.git("branch", "-m", "main", "trunk")  # no main/master/origin: git can't tell what shipped
+    data = {"a": rec(repo, good, days_ago(40), usd=2.0), "b": rec(gone, lost, days_ago(40), usd=6.0),
+            "c": {**rec(repo, "f" * 40, days_ago(40)), "repo": str(tmp_path / "deleted")}}
+    j = durable.judge(data)
+    assert len(j.unreadable) == 2 and j.not_kept == [] and [r["sha"] for r in j.judged] == [good]
+    assert j.cost_per_durable() == pytest.approx(2.0) and j.waste_ratio() == 0  # not counted as waste
+    text = "\n".join(working_changes(j))
+    assert "2 commits in repos aimpg couldn't read are left out" in text and "gone: no default branch found" in text
+    assert "0 never shipped" in text
+
+
+def test_working_changes_say_they_cover_all_history(repo):
+    sha = repo.commit({"good.py": LINES}, "feat: good", days_ago(40))
+    j = durable.judge({"k": {**rec(repo, sha, days_ago(40)), "first_seen": days_ago(35)}})
+    assert f"all history since {durable.day(days_ago(40))}, not just this window" in working_changes(j)[0]
+
+
+def test_ledger_counts_a_split_session_once_not_once_per_commit(tmp_path):
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy
+
+    path = tmp_path / "ledger.json"
+    t = Task("/r", "abc", 1.0, "s", "fuzzy", "kept", author="a")
+    for i in range(8):
+        t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), 0.25)  # a session split four ways
+    ledger.record([TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=0.1)], path)
+    assert ledger.load(path)[ledger.key("/r", "abc")]["requests"] == 2
+
+
+def test_a_session_split_further_later_still_counts_once(tmp_path):
+    # Run 1 sees a $10 session on commit A only; run 2 sees it split between A and B. The ledger must hold $10, not $15.
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy
+
+    def te(sha, share, usd):
+        t = Task("/r", sha, 1.0, "s", "fuzzy", "kept", author="a")
+        for i in range(10):
+            t.add(Request(str(i), "s", "m", 0, Usage(output=1), "/r"), share)
+        return TaskEnergy(t, WhRange(1, 2), WhRange(0, 0), usd=usd)
+
+    path = tmp_path / "ledger.json"
+    ledger.record([te("A", 1.0, 10.0)], path)
+    ledger.record([te("A", 0.5, 5.0), te("B", 0.5, 5.0)], path)
+    assert sum(r["usd"] for r in ledger.load(path).values()) == pytest.approx(10.0)

@@ -22,7 +22,45 @@ def test_working_change_number_leads_when_it_exists():
 
 def test_post_text_is_one_line_with_the_command():
     text = card.post_text(numbers())
-    assert "\n" not in text and "uvx aimpg report" in text and "list prices" in text
+    assert "\n" not in text and "uvx aimpg report" in text and "list prices" in text and text.endswith("#AIcodingMPG")
+
+
+def test_median_is_labelled_as_a_median():
+    # "$1.71 per kept commit" next to "$1,938 over 382 commits" reads as a division that doesn't add up
+    from types import SimpleNamespace
+
+    from aimpg.model import Request, Task, Usage
+
+    tasks = []
+    for i in range(5):
+        t = Task("/r", f"{i:040x}", 1.0, "s", "exact", "kept", author="a")
+        t.add(Request(str(i), "s", "claude-sonnet-5", 0, Usage(output=1000 * (i + 1)), "/r"))
+        tasks.append(t)
+    n = card.numbers(SimpleNamespace(requests=[]), SimpleNamespace(tasks=tasks, unattributed={}), 0, 30 * 86400)
+    assert n.typical_label == "median per kept commit"
+    assert "median per kept commit" in card.post_text(n) and "median per kept commit" in card.svg(n)
+
+
+def test_tip_speaks_as_the_cards_owner(monkeypatch):
+    from types import SimpleNamespace
+
+    tip = SimpleNamespace(measured="100% of your AI energy ran on the largest models (Opus/Fable class)")
+    monkeypatch.setattr(card, "coach_tips", lambda *a: [tip])
+    n = card.numbers(SimpleNamespace(requests=[]), SimpleNamespace(tasks=[]), 0, 86400)
+    assert n.tip == "100% of my AI energy ran on the largest models (Opus/Fable class)"
+    assert "↺" not in card.svg(n)
+
+
+def test_post_keeps_all_history_cost_apart_from_the_window_totals():
+    text = card.post_text(numbers(cost_per_working=75.5, days=3, usd=110, commits=5))
+    assert "$75.50 per working change (all my judged commits, 30+ days old). Last 3 days: $110 over 5 commits" in text
+    assert "all history" in card.svg(numbers(cost_per_working=75.5))
+
+
+def test_write_creates_the_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(card, "to_png", lambda p: None)
+    svg_path, _ = card.write(numbers(), tmp_path / "nodir" / "c.svg")
+    assert svg_path.exists()
 
 
 def test_write_always_gives_an_svg(tmp_path, monkeypatch):

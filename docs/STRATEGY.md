@@ -21,8 +21,8 @@
 
 ### 1. Developers: in the moment
 A monthly receipt is read once. Behavior changes at the moment of decision.
-- **Live status line** in Claude Code, for example `this task $3.10 (your usual $0.90) · fresh session saves ~40%`
-- **Post-commit line**, for example "this commit cost $2.40; starting fresh now saves ~$1.10 on the next task"
+- **Live status line** in Claude Code, for example `this task $3.10 (your usual $0.90)` (an earlier "fresh session saves ~40%" hint was dropped after Report No. 1 measured the opposite)
+- **Post-commit line**, for example "this commit cost $2.40 (your usual $1.10)" (the "start fresh to save" advice was dropped after Report No. 1)
 - **Before a task:** model advice backed by your own replay data.
 - **Subscribers** see rate-limit headroom, not dollars they don't pay.
 - **Never:** slowing the agent, extra prompts, or guilt-tripping climate copy.

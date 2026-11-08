@@ -116,7 +116,7 @@ def test_cli_report_end_to_end(world, capsys):
 
 def test_cli_without_logs_dir(tmp_path, capsys):
     assert main(["report", "--logs", str(tmp_path / "missing")]) == 0
-    assert "No Claude Code logs found" in capsys.readouterr().out
+    assert "No AI coding logs found" in capsys.readouterr().out
 
 
 def test_cli_with_logs_but_nothing_in_window(write_log, tmp_path, capsys):
@@ -318,3 +318,63 @@ def test_receipt_layout_for_installed_users(tmp_path, write_log, capsys):
     dotted = [line for line in out.splitlines() if " .." in line and ("Wh" in line or "kWh" in line)]
     assert len(dotted) >= 3
     assert len({line.index(" ", line.rindex("..")) for line in dotted}) == 1  # one value column
+
+
+def test_most_expensive_commit_is_the_one_that_cost_most():
+    from aimpg.energy import WhRange
+    from aimpg.model import Request, Task, Usage
+    from aimpg.receipt import TaskEnergy, summary
+
+    def energy(name, wh, usd):
+        t = Task("/r", name * 40, 1.0, name, "exact", "kept", author="a")
+        t.add(Request(name, "s", "m", 0, Usage(output=1), "/r"))
+        return TaskEnergy(t, WhRange(wh, wh), WhRange(0, 0), usd=usd)
+
+    text = "\n".join(summary([], [energy("a", 900, 20.01), energy("b", 100, 32.99)]))
+    assert "Most expensive commit:  r bbbbbbb" in text
+
+
+def test_leanest_commits_do_not_repeat_the_hungriest(world, capsys):
+    main(["report", "--logs", str(world["log"].parent.parent)])
+    assert "Leanest commits" not in capsys.readouterr().out  # 2 commits: the lists would overlap
+
+
+def test_cli_empty_logs_folder_gets_first_run_help(tmp_path, capsys):
+    (tmp_path / "projects").mkdir()  # a fresh Claude Code install
+    assert main(["report", "--logs", str(tmp_path / "projects")]) == 0
+    assert "No AI coding logs found" in capsys.readouterr().out
+
+
+def test_cli_old_logs_only_suggests_a_longer_window(write_log, capsys):
+    log = write_log([assistant("old", "2020-01-01T00:00:00.000Z")])
+    main(["report", "--logs", str(log.parent.parent)])
+    assert "try a longer window with --days N" in capsys.readouterr().out
+
+
+def test_cli_report_writes_the_patched_ledger_not_the_real_one(world, capsys):
+    from aimpg import ledger
+
+    main(["report", "--logs", str(world["log"].parent.parent)])
+    assert ledger.key(str(world["repo"].path.resolve()), world["c1"]) in ledger.load(ledger.LEDGER)
+
+
+def test_git_problems_say_why(tmp_path, write_log, capsys):
+    now = time.time()
+    repo = Repo(tmp_path / "repo")
+    repo.git("checkout", "-q", "-b", "trunk")  # no main/master/origin
+    repo.commit({"a.py": "def only_feature():\n    return 1\n"}, "feat", now - DAY)
+    log = write_log([assistant("r1", iso(now - DAY - 60), cwd=str(repo.path)),
+                     bash_call("tu1", "git commit -m feat", iso(now - DAY - 1), cwd=str(repo.path)),
+                     tool_result("tu1", iso(now - DAY + 1), cwd=str(repo.path))])
+    main(["report", "--logs", str(log.parent.parent)])
+    assert "Git problems (statuses unknown):\n  repo: no default branch found" in capsys.readouterr().out
+
+
+def test_top_level_help_and_version(capsys):
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    out = capsys.readouterr().out
+    assert "SUPPRESS" not in out and "statusline" not in out and "report" in out
+    with pytest.raises(SystemExit):
+        main(["--version"])
+    assert capsys.readouterr().out.startswith("aimpg ")

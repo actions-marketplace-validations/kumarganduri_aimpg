@@ -1,7 +1,16 @@
 import json
 
+import pytest
+
 from aimpg.cli import main
 from aimpg.replay import cli as replay_cli
+from aimpg.replay import sandbox
+
+
+@pytest.fixture(autouse=True)
+def _sandbox_ok(monkeypatch):
+    """CI's plain Linux jobs have no bubblewrap; these tests stop before anything runs sandboxed."""
+    monkeypatch.setattr(sandbox, "unavailable_reason", lambda: None)
 
 
 def record(commit, setup, repeat, passed, scale, cost=0.3):
@@ -32,7 +41,7 @@ def test_paid_commands_refuse_without_api_key(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(replay_cli, "STATE", tmp_path)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     (tmp_path / "repo").mkdir()
-    (tmp_path / "repo" / "selected.jsonl").write_text("")
+    (replay_cli._state(tmp_path / "repo") / "selected.jsonl").write_text("")
     assert main(["replay", "calibrate", str(tmp_path / "repo")]) == 1
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().out
 
@@ -50,7 +59,7 @@ def test_declining_the_cost_prompt_spends_nothing(tmp_path, monkeypatch, capsys)
     from aimpg.replay import select
 
     (tmp_path / "repo").mkdir()
-    select.save([Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(3)], tmp_path / "repo" / "selected.jsonl")
+    select.save([Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(3)], replay_cli._state(tmp_path / "repo") / "selected.jsonl")
     monkeypatch.setattr("builtins.input", lambda _: "n")
     assert main(["replay", "calibrate", str(tmp_path / "repo"), "--setups", "claude-code,claude-code+terse"]) == 1
     out = capsys.readouterr().out
@@ -103,7 +112,7 @@ def test_paid_run_combines_several_repos(tmp_path, monkeypatch, capsys):
 
     for name, n in (("one", 2), ("two", 3)):
         (tmp_path / name).mkdir()
-        select.save([Commit(f"/{name}", f"{name}{i:037d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(n)], tmp_path / name / "selected.jsonl")
+        select.save([Commit(f"/{name}", f"{name}{i:037d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(n)], replay_cli._state(tmp_path / name) / "selected.jsonl")
     monkeypatch.setattr("builtins.input", lambda _: "n")
     assert main(["replay", "run", str(tmp_path / "one"), str(tmp_path / "two"), "--commits", "5", "--cap", "9", "--setups", "claude-code,claude-code+rtk"]) == 1
     out = capsys.readouterr().out
@@ -144,7 +153,7 @@ def test_resume_plan_counts_only_missing_runs(tmp_path, monkeypatch, capsys):
 
     (tmp_path / "repo").mkdir()
     commits = [Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(3)]
-    select.save(commits, tmp_path / "repo" / "selected.jsonl")
+    select.save(commits, replay_cli._state(tmp_path / "repo") / "selected.jsonl")
     chosen = random.Random(7).sample(commits, 2)
     prior = tmp_path / "prior.jsonl"
     prior.write_text(json.dumps(record(chosen[0].sha, "claude-code", 0, True, 1.0)) + "\n")
@@ -161,7 +170,7 @@ def test_models_command_plans_one_setup_per_model(tmp_path, monkeypatch, capsys)
     from aimpg.replay.workspace import Commit
 
     (tmp_path / "repo").mkdir()
-    select.save([Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(12)], tmp_path / "repo" / "selected.jsonl")
+    select.save([Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(12)], replay_cli._state(tmp_path / "repo") / "selected.jsonl")
     monkeypatch.setattr("builtins.input", lambda _: "n")
     assert main(["replay", "models", str(tmp_path / "repo"), "--commits", "10", "--cap", "15", "--task-mode", "tests"]) == 1
     assert "10 commits × 3 setups × 1 repeats = 30 agent runs" in capsys.readouterr().out
@@ -175,3 +184,49 @@ def test_stats_on_a_model_picker_file_prints_the_picker(tmp_path, capsys):
     assert main(["replay", "stats", str(path)]) == 0
     out = capsys.readouterr().out
     assert "Use haiku" in out and "$ / solved task" in out
+
+
+def test_state_is_per_repo_path_not_per_folder_name(tmp_path, monkeypatch):
+    from aimpg.replay import select
+    from aimpg.replay.workspace import Commit
+
+    monkeypatch.setattr(replay_cli, "STATE", tmp_path / "state")
+    work, oss = tmp_path / "work" / "api", tmp_path / "oss" / "api"
+    assert replay_cli._state(work) != replay_cli._state(oss)
+    # a selection saved before 0.7.1 under the bare name stays with the repo its commits came from
+    legacy = tmp_path / "state" / "app"
+    legacy.mkdir()
+    mine = tmp_path / "mine" / "app"
+    select.save([Commit(str(mine), "a" * 40, "p", "s", "", ["t.py"], ["a.py"])], legacy / "selected.jsonl")
+    assert replay_cli._state(mine) == legacy
+    assert replay_cli._state(tmp_path / "other" / "app") != legacy
+
+
+def test_paid_commands_stop_before_the_prompt_without_a_sandbox(tmp_path, monkeypatch, capsys):
+    from aimpg.replay import select
+    from aimpg.replay.workspace import Commit
+
+    monkeypatch.setattr(replay_cli, "STATE", tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-used")
+    monkeypatch.setattr(sandbox, "unavailable_reason", lambda: "replays on Linux need bubblewrap")
+    select.save([Commit("/r", f"{i:040d}", "p", "s", "", ["t.py"], ["a.py"]) for i in range(3)], replay_cli._state(tmp_path / "repo") / "selected.jsonl")
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("asked to spend on a machine that can't run the replays"))
+    assert main(["replay", "calibrate", str(tmp_path / "repo")]) == 1
+    assert "need bubblewrap" in capsys.readouterr().out
+
+
+def test_cutoff_needs_the_author_date_too(tmp_path):
+    # A rebase or cherry-pick renews only the committer date: older work must stay out
+    from gitrepo import Repo, days_ago
+
+    from aimpg.replay.select import candidates
+
+    r = Repo(tmp_path / "repo")
+    r.commit({"calc.py": "x = 1\n"}, "base", when=days_ago(9))
+    r.commit({"calc.py": "x = 2\n", "tests/test_calc.py": "def test(): ...\n"}, "change the value of x to two now", when=days_ago(5))
+    fresh = r.git("rev-parse", "HEAD")
+    r.commit({"calc.py": "x = 3\n", "tests/test_calc.py": "def test(): 1\n"}, "change the value of x to three now", when=days_ago(4))
+    r.git("commit", "--amend", "-q", "--no-edit", f"--date=@{int(days_ago(60))} +0000")  # authored long ago, committed now
+    commits, skipped = candidates(str(r.path), days_ago(30), days_ago(20), any_author=True)
+    assert [c.sha for c in commits] == [fresh]
+    assert skipped == {"doesn't change both code and tests": 1, "before model training cutoff": 1}

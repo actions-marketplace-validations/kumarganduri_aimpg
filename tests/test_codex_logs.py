@@ -1,6 +1,6 @@
 import json
 
-from aimpg.codex_logs import merge, parse_codex
+from aimpg.codex_logs import iter_files, merge, parse_codex
 from aimpg.logs import parse_logs
 
 from conftest import assistant
@@ -57,3 +57,27 @@ def test_corrupt_rows_are_counted(tmp_path):
     p = tmp_path / "rollout-y.jsonl"
     p.write_text('{"type": "event_msg", "payl\n')
     assert parse_codex([p]).stats["corrupt_rows"] == 1
+
+
+def test_rows_of_unexpected_shape_are_skipped_not_fatal(tmp_path):
+    # Codex's format isn't documented: a shape change must not take the report down
+    good = token_count("2026-10-03T09:00:05.000Z", 100, 0, 5)
+    odd = [None, [1], {"type": "event_msg", "payload": [1]},
+           {"timestamp": "2026-10-03T09:00:06.000Z", "type": "event_msg", "payload": {"type": "token_count", "info": [1]}}]
+    bad_values = []
+    for key, value in (("input_tokens", "abc"), ("output_tokens", -100000), ("cached_input_tokens", float("inf"))):
+        row = token_count("2026-10-03T09:00:07.000Z", 100, 0, 5)
+        row["payload"]["info"]["last_token_usage"] = {**row["payload"]["info"]["last_token_usage"], key: value}
+        bad_values.append(row)
+    p = parse_codex([write(tmp_path, [good, *odd, *bad_values])])
+    assert len(p.requests) == 1
+    assert p.stats["corrupt_rows"] == 2 and p.stats["skipped_requests"] == 3
+
+
+def test_unreadable_files_are_counted_not_fatal(tmp_path):
+    (tmp_path / "dangling.jsonl").symlink_to(tmp_path / "missing.jsonl")
+    (tmp_path / "dir.jsonl").mkdir()
+    good = write(tmp_path, [token_count("2026-10-03T09:00:05.000Z", 100, 0, 5)])
+    assert list(iter_files(tmp_path)) == [good]
+    p = parse_codex([tmp_path / "deleted-since-listed.jsonl", good])
+    assert len(p.requests) == 1 and p.stats["unreadable_files"] == 1

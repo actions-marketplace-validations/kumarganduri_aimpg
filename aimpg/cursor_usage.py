@@ -47,7 +47,7 @@ def normalize_model(name: str) -> str:
 def _int(value: str | None) -> int:
     try:
         return int(float((value or "0").replace(",", "")))
-    except ValueError:
+    except (ValueError, OverflowError):  # OverflowError: "inf"
         return 0
 
 
@@ -57,41 +57,53 @@ def parse_cursor(paths: Iterable[Path], repo: str = "", user: str | None = None)
     stats = {"files": 0, "rows": 0, "unique_requests": 0, "corrupt_rows": 0}
     for path in paths:
         stats["files"] += 1
-        with open(path, newline="", encoding="utf-8-sig") as fh:
-            reader = csv.DictReader(fh)
-            missing = [c for c in REQUIRED if c not in (reader.fieldnames or [])]
-            if missing:
-                raise CursorExportError(f"{path}: not a Cursor usage export (missing columns: {', '.join(missing)})")
-            for row in reader:
-                stats["rows"] += 1
-                if user is not None and row.get("User", user) != user:
-                    continue
-                ts = parse_ts(row.get("Date"))
-                if ts is None:
-                    stats["corrupt_rows"] += 1
-                    continue
-                usage = Usage(
-                    fresh_in=_int(row["Input (w/o Cache Write)"]),
-                    cache_write=_int(row["Input (w/ Cache Write)"]),
-                    cache_read=_int(row["Cache Read"]),
-                    output=_int(row["Output Tokens"]),
-                )
-                if not (usage.ctx_len or usage.output):
-                    continue  # errored / not-charged events carry no tokens
-                key = (row["Date"], row["Model"], row.get("User", ""), usage)
-                if key in seen:  # overlapping exports
-                    continue
-                seen.add(key)
-                result.requests.append(Request(
-                    id=f"cursor:{len(seen)}",
-                    session_id=SESSION_PREFIX + (row.get("User") or "me"),
-                    model=normalize_model(row["Model"].strip()),
-                    ts=ts,
-                    usage=usage,
-                    cwd=repo,
-                ))
+        try:
+            _read(path, repo, user, result, seen, stats)
+        except UnicodeDecodeError as exc:
+            raise CursorExportError(f"{path}: not UTF-8 text ({exc})") from exc
     stats["unique_requests"] = len(seen)
     result.requests.sort(key=lambda r: r.ts)
     result.stats = stats
     result.versions = {"cursor export": len(seen)} if seen else {}
     return result
+
+
+def _read(path: Path, repo: str, user: str | None, result: ParseResult, seen: set[tuple], stats: dict) -> None:
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames:  # a re-saved export can pad headers with spaces
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
+        missing = [c for c in REQUIRED if c not in (reader.fieldnames or [])]
+        if missing:
+            raise CursorExportError(f"{path}: not a Cursor usage export (missing columns: {', '.join(missing)})")
+        for row in reader:
+            stats["rows"] += 1
+            if user is not None and row.get("User", user) != user:
+                continue
+            ts = parse_ts(row.get("Date"))
+            if ts is None:
+                stats["corrupt_rows"] += 1
+                continue
+            usage = Usage(
+                fresh_in=_int(row["Input (w/o Cache Write)"]),
+                cache_write=_int(row["Input (w/ Cache Write)"]),
+                cache_read=_int(row["Cache Read"]),
+                output=_int(row["Output Tokens"]),
+            )
+            if min(usage.fresh_in, usage.cache_write, usage.cache_read, usage.output) < 0:
+                stats["corrupt_rows"] += 1
+                continue
+            if not (usage.ctx_len or usage.output):
+                continue  # errored / not-charged events carry no tokens
+            key = (row["Date"], row["Model"], row.get("User", ""), usage)
+            if key in seen:  # overlapping exports
+                continue
+            seen.add(key)
+            result.requests.append(Request(
+                id=f"cursor:{len(seen)}",
+                session_id=SESSION_PREFIX + (row.get("User") or "me"),
+                model=normalize_model(row["Model"].strip()),
+                ts=ts,
+                usage=usage,
+                cwd=repo,
+            ))

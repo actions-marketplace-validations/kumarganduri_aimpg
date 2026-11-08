@@ -52,6 +52,9 @@ def add_parser(sub) -> None:
         if name == "run":
             c.add_argument("--pilot", action="store_true", help="1 repo × 2 commits × 1 repeat, to measure cost and noise")
             c.add_argument("--yes", action="store_true")
+        if name == "report":
+            c.add_argument("--runs", type=Path, metavar="DIR",
+                           help="read results from DIR (e.g. a downloaded data folder) instead of this machine's study state; prints only")
 
 
 def load_plan(path: Path) -> dict:
@@ -72,9 +75,20 @@ def _out(plan: dict) -> Path:
 
 def main(args) -> int:
     plan = load_plan(args.plan)
+    if args.study_command in ("select", "run"):
+        from aimpg.replay import sandbox
+
+        reason = sandbox.unavailable_reason()
+        if reason:  # before any work or question: every step runs sandboxed
+            print(f"Can't sandbox the study on this machine: {reason}")
+            return 1
     if args.study_command == "select":
         return _select_all(plan)
     if args.study_command == "report":
+        if args.runs:
+            if not args.runs.is_dir():
+                raise SystemExit(f"No such folder: {args.runs}")
+            return _report(plan, folder=args.runs.resolve(), save=False)
         return _report(plan)
     return _run(plan, args)
 
@@ -201,7 +215,7 @@ def _run(plan: dict, args) -> int:
     return _report(plan, folder=out)
 
 
-def _report(plan: dict, folder: Path | None = None) -> int:
+def _report(plan: dict, folder: Path | None = None, *, save: bool = True) -> int:
     folder = folder or (_out(plan) / "runs")
     records = []
     for path in sorted(folder.glob("*.jsonl")):
@@ -223,6 +237,8 @@ def _report(plan: dict, folder: Path | None = None) -> int:
         fired = sum(1 for r in rtk if r.extra.get("rtk_fired"))
         text += f"\n\nRTK fired in {fired} of {len(rtk)} RTK runs (RTK's own count); results above include all runs."
     print(text)
+    if not save:
+        return 0
     (folder.parent / f"{folder.name}-report.md").write_text(text + "\n")
     (folder.parent / f"{folder.name}-report.json").write_text(json.dumps(
         [{**{k: v for k, v in c.__dict__.items() if k != "arms"}, "arms": {s: a.__dict__ for s, a in c.arms.items()}}

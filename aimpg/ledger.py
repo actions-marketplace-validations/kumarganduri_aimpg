@@ -16,7 +16,8 @@ from pathlib import Path
 LEDGER = Path.home() / ".aimpg" / "ledger.json"
 
 
-def load(path: Path = LEDGER) -> dict[str, dict]:
+def load(path: Path | None = None) -> dict[str, dict]:
+    path = path or LEDGER  # looked up at call time so tests can point it elsewhere
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError):
@@ -27,19 +28,21 @@ def key(repo: str, sha: str) -> str:
     return f"{repo}|{sha}"
 
 
-def record(energies, path: Path = LEDGER) -> int:
+def record(energies, path: Path | None = None) -> int:
     """Upsert one line per commit from receipt.task_energy(...). Returns how many changed."""
+    path = path or LEDGER
     data = load(path)
     changed = 0
     now = time.time()
     for e in energies:
         t = e.task
-        requests = len(t.requests) + len(t.lead_up)
-        if requests == 0:
+        if not (t.requests or t.lead_up):
             continue
+        requests = round(sum(t.weights) + sum(t.lead_up_weights))  # a split session counts once in all
+        seen = len(t.requests) + len(t.lead_up)  # unweighted: doesn't shrink when a session is split further
         k = key(t.repo, t.sha)
         old = data.get(k)
-        if old and old.get("requests", 0) > requests:
+        if old and old.get("seen_requests", old.get("requests", 0)) > seen:
             continue  # logs were cleaned up since: keep the fuller record
         data[k] = {
             "repo": t.repo,
@@ -48,6 +51,7 @@ def record(energies, path: Path = LEDGER) -> int:
             "subject": t.subject,
             "author": t.author,
             "requests": requests,
+            "seen_requests": seen,
             "usd": round(e.usd + e.lead_up_usd, 4),
             "wh_low": round(e.total.low, 3),
             "wh_high": round(e.total.high, 3),

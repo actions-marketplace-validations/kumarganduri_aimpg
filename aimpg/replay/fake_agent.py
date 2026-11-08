@@ -58,6 +58,17 @@ def transcript(cfg: Path, cwd: Path, model: str, n: int) -> tuple[dict, dict]:
     return usage, model_usage
 
 
+def _stubs(folder: Path) -> set[str]:
+    """Names in an empty stand-in folder that only lead to this Python, which the Linux sandbox
+    mounts read-only for its network relay (e.g. a uv-installed Python under ~/.local)."""
+    names = set()
+    for granted in {sys.base_prefix, sys.prefix}:
+        rel = Path(granted).resolve()
+        if folder.resolve() in rel.parents:
+            names.add(rel.relative_to(folder.resolve()).parts[0])
+    return names
+
+
 def escape_attempts(cwd: Path, cfg: Path) -> list[str]:
     """Every attempt that SUCCEEDS is a sandbox bug.
 
@@ -67,7 +78,7 @@ def escape_attempts(cwd: Path, cfg: Path) -> list[str]:
     succeeded = []
     real_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
     own_run = cwd.parent.name
-    for target, allowed in ((real_home, set()), (real_home / ".ssh", set()), (cwd.parent.parent, {own_run})):
+    for target, allowed in ((real_home, _stubs(real_home)), (real_home / ".ssh", set()), (cwd.parent.parent, {own_run})):
         try:
             if set(os.listdir(target)) - allowed:
                 succeeded.append(f"read {target}")

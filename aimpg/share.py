@@ -40,7 +40,7 @@ def csv_rows(attribution: Attribution, *, subjects: bool = True, authors: bool =
             "subject": t.subject if subjects else "",
             "status": t.status,
             "matched_by": t.attribution,
-            "ai_requests": len(t.requests) + len(t.lead_up),
+            "ai_requests": round(sum(t.weights) + sum(t.lead_up_weights)),  # a split session counts once in all
             "energy_wh_low": round(e.wh.low, 3),
             "energy_wh_high": round(e.wh.high, 3),
             "lead_up_wh_low": round(e.lead_up.low, 3),
@@ -61,7 +61,7 @@ def write_csv(rows: list[dict], path: Path) -> None:
 
 
 def branch_commits(repo: Path, base: str) -> list[str]:
-    out = subprocess.run(["git", "-C", str(repo), "rev-list", f"{base}..HEAD"], capture_output=True, text=True)
+    out = subprocess.run(["git", "-C", str(repo), "rev-list", "--no-merges", f"{base}..HEAD"], capture_output=True, text=True)
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip() or f"git rev-list {base}..HEAD failed")
     return out.stdout.split()

@@ -1,3 +1,5 @@
+import json
+
 from aimpg.logs import bash_paths, commit_cwd, iter_log_files, parse_logs
 
 from conftest import assistant, bash_call, tool_result
@@ -116,6 +118,32 @@ def test_versions_are_counted(write_log):
 
 def test_missing_root_yields_no_files(tmp_path):
     assert list(iter_log_files(tmp_path / "nope")) == []
+
+
+def test_unreadable_log_files_are_counted_not_fatal(write_log, tmp_path):
+    good = write_log([assistant("req_a", T0)])
+    (good.parent / "broken.jsonl").symlink_to(tmp_path / "missing.jsonl")
+    (good.parent / "sub.jsonl").mkdir()
+    assert list(iter_log_files(good.parent.parent)) == [good]
+    result = parse_logs([tmp_path / "deleted-since-listed.jsonl", good])  # Claude Code cleaned it up mid-scan
+    assert [r.id for r in result.requests] == ["req_a"] and result.stats["unreadable_files"] == 1
+
+
+def test_odd_values_are_skipped_not_fatal(write_log):
+    huge = assistant("req_b", T0)
+    huge["message"]["usage"]["input_tokens"] = float("inf")
+    bad_id = b'{"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t\xff1"}]}}'
+    path = write_log([bash_call("t1", "git commit -m x", T0), assistant("req_a", T0), huge])
+    path.write_bytes(path.read_bytes() + bad_id + b"\n")
+    result = parse_logs([path])
+    assert [r.id for r in result.requests] == ["req_t1", "req_a"] and result.stats["skipped_bad_shape"] == 1
+
+
+def test_line_cut_off_mid_write_counts_as_skipped(write_log):
+    row = json.dumps(assistant("req_b", T1))
+    path = write_log([assistant("req_a", T0)], raw_lines=[row[:80]])  # "usage" is near the end of a real row
+    assert '"usage"' not in row[:80]
+    assert parse_logs([path]).stats["corrupt_rows"] == 1
 
 
 class TestCommitCwd:

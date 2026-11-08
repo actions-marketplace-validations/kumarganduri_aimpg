@@ -118,3 +118,15 @@ def test_repo_root(repo, tmp_path):
     plain = tmp_path / "plain"
     plain.mkdir()
     assert repo_root(str(plain)) is None
+
+
+def test_record_separator_in_a_file_does_not_split_commits(repo):
+    # A fixture file with byte 0x1e (git diffs it as text) once split a commit in
+    # two, turned file bytes into a fake sha, and failed the whole repo with a GitError.
+    sha = repo.commit({"a.py": BODY}, "feat: a", days_ago(20))
+    fixture = repo.commit({"data.txt": "line\x1edeadbeef\x1fsecond\nmore\x1e\n"}, "fixture", days_ago(10))
+    commits = load_commits(str(repo.path), days_ago(60))
+    assert len(commits) == 3 and {sha, fixture} <= {c.sha for c in commits}
+    assert next(c for c in commits if c.sha == fixture).files == {"data.txt": (2, 0)}
+    _, _, status = classify(repo)  # no GitError from `git show <garbage>`
+    assert status[sha] is Status.KEPT

@@ -202,6 +202,8 @@ def command(template: str, hosts: list[str], key_env: str = "", name: str = "cmd
     argv = shlex.split(template)
     if not argv or not any("{task}" in a for a in argv):
         raise SetupUnavailable("the command must contain {task} where the task text goes")
+    if "/" in argv[0] and not argv[0].startswith("/"):  # it runs from the run's own folder, not from here
+        raise SetupUnavailable(f"the command's program must be a name on PATH or an absolute path: {argv[0][:80]!r}")
     return Setup(name, requires=(argv[0],), agent="cmd", template=argv, hosts=frozenset(hosts), key_env=key_env,
                  spec={"agent": "cmd", "command_sha256": _sha(template), "command": template, "hosts": sorted(hosts), "key_env": key_env})
 

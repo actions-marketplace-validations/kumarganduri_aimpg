@@ -94,3 +94,64 @@ def test_scoreboard_rejects_option_shaped_commits(tmp_path):
     up["runs"][0]["commit"] = "--output=x"
     data = sb.encode(up)
     assert any("40-character" in p for p in sb.validate_upload(tmp_path / "me" / sb.file_name(data), data))
+
+
+# ---- pre-launch QA (2026-10-25)
+
+def _fake_home(tmp_path, monkeypatch, *tools: str):
+    home = tmp_path / "home"
+    home.mkdir()
+    for t in tools:
+        (home / t).parent.mkdir(parents=True, exist_ok=True)
+        (home / t).write_text("#!/bin/sh\n")
+        (home / t).chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    return home.resolve()
+
+
+def test_a_record_command_with_dotdot_cannot_make_the_disk_readable(tmp_path, monkeypatch):
+    home = _fake_home(tmp_path, monkeypatch)
+    (home / "proj").mkdir()
+    monkeypatch.chdir(home / "proj")  # the victim runs --rerun from inside their home folder
+    climb = "../" * 12 + "bin/cat"
+    spec = {"name": "fast-agent", "agent": "cmd", "command": f"{climb} {{task}}", "hosts": ["api.anthropic.com"]}
+    with pytest.raises(S.SetupUnavailable):
+        setup_from_spec(spec)
+    with pytest.raises(S.SetupUnavailable):
+        S.command(f"{climb} {{task}}", ["api.anthropic.com"])  # your own command can't either
+    assert sandbox.tool_dirs((climb,)) == []  # normalized to /bin/cat: nothing under $HOME to grant
+    for broad in ("/", home, home.parent):
+        with pytest.raises(SandboxUnavailable):
+            Profile(writable=[tmp_path / "w"], readable=[broad]).render()
+        with pytest.raises(SandboxUnavailable):
+            sandbox.bwrap_args(Profile(writable=[tmp_path / "w"], readable=[broad]), tmp_path)
+
+
+def test_a_bin_folder_directly_in_home_is_granted_alone(tmp_path, monkeypatch):
+    # ~/.cargo/credentials.toml holds the crates.io token; rtk is usually installed with cargo
+    home = _fake_home(tmp_path, monkeypatch, ".cargo/bin/rtk", ".nvm/versions/node/v22/bin/node")
+    monkeypatch.setenv("PATH", f"{home}/.cargo/bin:{home}/.nvm/versions/node/v22/bin:/usr/bin:/bin")
+    assert sandbox.tool_dirs(("rtk", "node")) == [home / ".cargo/bin", home / ".nvm/versions/node/v22"]
+
+
+def test_linuxbrew_installs_stay_readable(tmp_path, monkeypatch):
+    _fake_home(tmp_path, monkeypatch)
+    brew = tmp_path / "linuxbrew" / ".linuxbrew"
+    (brew / "Cellar/node/22/bin").mkdir(parents=True)
+    (brew / "Cellar/node/22/bin/node").write_text("#!/bin/sh\n")
+    (brew / "Cellar/node/22/bin/node").chmod(0o755)
+    (brew / "bin").mkdir()
+    (brew / "bin/node").symlink_to("../Cellar/node/22/bin/node")
+    monkeypatch.setattr(sandbox, "LINUXBREW", brew)
+    monkeypatch.setenv("PATH", f"{brew}/bin:/usr/bin:/bin")
+    assert brew.resolve() in sandbox.tool_dirs(("node",))  # its own ld.so and libraries live in the prefix
+
+
+def test_linux_sandbox_hides_mounted_drives(tmp_path, monkeypatch):
+    drive = tmp_path / "mnt"
+    (drive / "c" / "Users").mkdir(parents=True)  # WSL: the Windows home
+    monkeypatch.setattr(sandbox, "LINUX_DRIVES", (str(drive),))
+    args = sandbox.bwrap_args(Profile(writable=[tmp_path / "w"]), tmp_path)
+    assert args[args.index(str(drive)) - 1] == "--tmpfs"
+    with pytest.raises(SandboxUnavailable):
+        sandbox.bwrap_args(Profile(writable=[tmp_path / "w"], readable=[drive]), tmp_path)

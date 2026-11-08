@@ -68,5 +68,5 @@ jobs:
         run: |
           grep -q 'AI cost of this pull request' "${{ steps.pr.outputs.markdown-file }}"
           grep -q 'Cost per working change' "${{ steps.rollup.outputs.markdown-file }}"
-          grep -q '\$15.00' "${{ steps.rollup.outputs.markdown-file }}"
+          grep -q '\*\*\$19.10\*\* over 6 commits' "${{ steps.rollup.outputs.markdown-file }}"  # 5 notes on main + 1 on the branch
           cat "${{ steps.rollup.outputs.markdown-file }}"

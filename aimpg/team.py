@@ -19,6 +19,7 @@ own history, the same way as `aimpg report`.
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ NOTES_REF = "aimpg"
 FULL_REF = f"refs/notes/{NOTES_REF}"
 NOTE_VERSION = 1
 MIN_GROUP = 5
+PR_MARKER = "<!-- aimpg:pr -->"  # the Action finds its own PR comment by this, never another bot's
 
 
 # ---------------------------------------------------------------- notes
@@ -39,7 +41,8 @@ def note_for(e) -> dict:
     """e: receipt.TaskEnergy."""
     return {"aimpg_note": NOTE_VERSION, "usd": round(e.usd + e.lead_up_usd, 2),
             "wh": [round(e.total.low, 1), round(e.total.high, 1)],
-            "requests": len(e.task.requests) + len(e.task.lead_up), "tier": e.task.attribution}
+            "requests": round(sum(e.task.weights) + sum(e.task.lead_up_weights)), "tier": e.task.attribution,
+            "seen_requests": len(e.task.requests) + len(e.task.lead_up)}  # unweighted, for "keep the fuller one"
 
 
 def read_notes(repo: str | Path) -> dict[str, dict]:
@@ -70,8 +73,13 @@ def read_notes(repo: str | Path) -> dict[str, dict]:
 
 def _valid(note: dict) -> bool:
     wh = note.get("wh")
-    return (isinstance(note.get("usd"), (int, float)) and note["usd"] >= 0 and isinstance(wh, list) and len(wh) == 2
-            and all(isinstance(x, (int, float)) and x >= 0 for x in wh) and isinstance(note.get("requests"), int))
+    return (_amount(note.get("usd")) and isinstance(wh, list) and len(wh) == 2 and all(_amount(x) for x in wh)
+            and type(note.get("requests")) is int and note["requests"] >= 0)
+
+
+def _amount(x) -> bool:
+    """A finite, non-negative number (JSON allows Infinity and NaN; a bool is an int in Python)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) and x >= 0
 
 
 def write_notes(repo: str, energies, *, author: str | None = None) -> tuple[int, int]:
@@ -87,7 +95,7 @@ def write_notes(repo: str, energies, *, author: str | None = None) -> tuple[int,
             continue
         note = note_for(e)
         old = existing.get(e.task.sha)
-        if old == note or (old and old.get("requests", 0) > note["requests"]):  # keep the fuller one
+        if old == note or (old and old.get("seen_requests", old.get("requests", 0)) > note["seen_requests"]):  # keep the fuller one
             continue
         _git(repo, "notes", f"--ref={NOTES_REF}", "add", "-f", "-F", "-", e.task.sha, stdin=json.dumps(note, sort_keys=True))
         written += 1
@@ -124,13 +132,13 @@ def pr_summary(repo: str, shas: list[str]) -> dict:
 
 
 def pr_markdown(s: dict) -> str:
-    lines = ["### ⚡ AI cost of this pull request", ""]
+    lines = [PR_MARKER, "### ⚡ AI cost of this pull request", ""]
     if not s["noted"]:
-        lines += [f"No aimpg notes on the {s['commits']} commits here yet. "
+        lines += [f"No aimpg notes on the {_n(s['commits'], 'commit')} here yet. "
                   "Each author can add theirs with `aimpg notes push` (metadata only)."]
     else:
-        lines += [f"**${s['usd']:,.2f}** API-equivalent · **{_wh(s['wh'])}** · {s['requests']:,} model requests",
-                  "", f"<sub>{s['noted']} of {s['commits']} commits have notes from their authors · "
+        lines += [f"**${s['usd']:,.2f}** API-equivalent · **{_wh(s['wh'])}** · {_n(s['requests'], 'model request')}",
+                  "", f"<sub>{s['noted']} of {_n(s['commits'], 'commit')} {'has' if s['commits'] == 1 else 'have'} notes from their authors · "
                   "[aimpg](https://github.com/kumarganduri/aimpg) · energy is a range because model sizes aren't public"
                   " · see your own: `uvx aimpg report`</sub>"]
     return "\n".join(lines) + "\n"
@@ -154,11 +162,12 @@ def rollup(repo: str, *, days: int = 90, now: float | None = None, min_group: in
     ledger = {sha: {"repo": repo, "sha": sha, "ts": c.ts, "usd": n["usd"], "wh_low": n["wh"][0], "wh_high": n["wh"][1]}
               for sha, (c, n) in noted.items()}
     judged = durable.judge(ledger, now)
-    weeks = defaultdict(lambda: {"usd": 0.0, "commits": 0})
+    weeks = defaultdict(lambda: {"usd": 0.0, "commits": 0, "people": set()})
     for c, n in noted.values():
         y, w, _ = datetime.fromtimestamp(c.ts, tz=timezone.utc).isocalendar()
         weeks[f"{y}-W{w:02d}"]["usd"] += n["usd"]
         weeks[f"{y}-W{w:02d}"]["commits"] += 1
+        weeks[f"{y}-W{w:02d}"]["people"].add(c.author_email.lower())
     out.update({
         "usd": round(sum(n["usd"] for _, n in noted.values()), 2),
         "wh": [round(sum(n["wh"][0] for _, n in noted.values()), 1), round(sum(n["wh"][1] for _, n in noted.values()), 1)],
@@ -167,9 +176,33 @@ def rollup(repo: str, *, days: int = 90, now: float | None = None, min_group: in
         "waste_ratio": judged.waste_ratio(),
         "judged": {"working": len(judged.durable), "reverted": len(judged.reverted), "reworked": len(judged.reworked),
                    "not_kept": len(judged.not_kept), "too_new": len(judged.too_new)},
-        "weeks": {k: {"usd": round(v["usd"], 2), "commits": v["commits"]} for k, v in sorted(weeks.items())},
+        "weeks": _periods(weeks, min_group),
     })
     return out
+
+
+def _periods(weeks: dict, min_group: int) -> dict:
+    """Merge consecutive weeks until each row has notes from at least min_group
+    people, so no row is one person's cost. A short tail joins the row before it."""
+    rows: list[dict] = []
+    run = None
+    for k, v in sorted(weeks.items()):
+        if run is None:
+            run = {"first": k, "last": k, "usd": 0.0, "commits": 0, "people": set()}
+        run["last"] = k
+        run["usd"] += v["usd"]
+        run["commits"] += v["commits"]
+        run["people"] |= v["people"]
+        if len(run["people"]) >= min_group:
+            rows.append(run)
+            run = None
+    if run is not None:
+        if rows:
+            rows[-1].update(last=run["last"], usd=rows[-1]["usd"] + run["usd"], commits=rows[-1]["commits"] + run["commits"])
+        else:
+            rows.append(run)
+    return {(r["first"] if r["first"] == r["last"] else f"{r['first']} – {r['last']}"):
+            {"usd": round(r["usd"], 2), "commits": r["commits"]} for r in rows}
 
 
 def rollup_markdown(r: dict) -> str:
@@ -194,6 +227,10 @@ def rollup_markdown(r: dict) -> str:
         "[aimpg](https://github.com/kumarganduri/aimpg) · see your own: `uvx aimpg report`</sub>",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _n(count: int, word: str) -> str:
+    return f"{count:,} {word}{'' if count == 1 else 's'}"
 
 
 def _wh(v: list[float]) -> str:

@@ -7,7 +7,6 @@ The monthly receipt is read once; behavior changes at the moment of decision.
 
     after the agent runs `git commit` (PostToolUse hook, shown to you only):
       aimpg: that commit cost $2.40 over 31 requests (≈ 2 phone charges).
-             69% of the context is from before it: /clear before the next task saves ~69% per request.
 
 Speed matters (this runs constantly), so:
   * the session transcript is read incrementally: only bytes added since the
@@ -22,11 +21,15 @@ from __future__ import annotations
 import json
 import shlex
 import os
+import shutil
+import stat
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
+from importlib import metadata
 from pathlib import Path
 
 from aimpg.cost import usage_cost
@@ -35,7 +38,6 @@ from aimpg.model import Usage
 
 LIVE_DIR = Path.home() / ".aimpg" / "live"
 BASELINE_MAX_AGE = 24 * 3600
-CLEAR_HINT_SHARE = 0.4  # suggest /clear when this much of the context predates the last commit
 
 
 @dataclass
@@ -115,8 +117,8 @@ def update(state: SessionState, transcript: Path) -> SessionState:
         if line.strip() and _worth_parsing(line, state.pending):
             try:
                 _row(state, json.loads(line))
-            except (ValueError, TypeError, KeyError):
-                continue
+            except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                continue  # an odd row: skip it rather than break the status line on every refresh
     state.offset += end + 1
     return state
 
@@ -259,8 +261,6 @@ def status_line(data: dict, state: SessionState, usual: float | None) -> str:
             parts.append(f"ctx {_k(ctx)} ({share:.0%} from before your last commit)")
         else:
             parts.append(f"ctx {_k(ctx)}")
-        if share >= CLEAR_HINT_SHARE and len(state.task) <= 3:
-            parts.append("next task? /clear")
     five = ((data.get("rate_limits") or {}).get("five_hour") or {}).get("used_percentage")
     if isinstance(five, (int, float)):
         parts.append(f"5h {five:.0f}%")
@@ -268,19 +268,15 @@ def status_line(data: dict, state: SessionState, usual: float | None) -> str:
 
 
 def commit_note(done: dict) -> str:
-    msg = f"aimpg: that commit cost {_usd(done['cost'])} over {done['requests']} AI requests."
-    share = done.get("stale_share", 0.0)
-    if share >= CLEAR_HINT_SHARE:
-        msg += (f" {share:.0%} of the context is from earlier work. If the next task doesn't need it, /clear"
-                " (with a one-line summary) stops re-reading it on every request.")
-    return msg
+    return f"aimpg: that commit cost {_usd(done['cost'])} over {done['requests']} AI requests."
 
 
 def _read_stdin_json() -> dict:
     try:
-        return json.loads(sys.stdin.read() or "{}")
+        data = json.loads(sys.stdin.read() or "{}")
     except ValueError:
         return {}
+    return data if isinstance(data, dict) else {}
 
 
 def run_statusline(previous: str | None = None) -> int:
@@ -288,6 +284,8 @@ def run_statusline(previous: str | None = None) -> int:
     try:
         data = json.loads(raw or "{}")
     except ValueError:
+        data = {}
+    if not isinstance(data, dict):
         data = {}
     out = []
     if previous:  # keep the user's own status line, then add ours
@@ -340,65 +338,174 @@ PREVIOUS = LIVE_DIR / "previous_statusline.json"
 OURS = ("aimpg statusline", "aimpg hook post-commit")
 
 
+class SettingsError(Exception):
+    """settings.json can't be changed safely; the message says why. Nothing was written."""
+
+
+def _is_our_line(command: str) -> bool:
+    return "aimpg" in command and command.endswith("statusline")
+
+
+def _is_our_hook(command: str) -> bool:
+    return "aimpg" in command and command.endswith("hook post-commit")
+
+
+def _ephemeral(path: str) -> bool:
+    """True for an aimpg that uvx (or pipx run) unpacked into a cache or temp dir, which can vanish."""
+    real = Path(os.path.realpath(path))
+    if any(p.startswith(("archive-v", "builds-v")) for p in real.parts):  # uv's cache layout
+        return True
+    roots = [os.environ.get("UV_CACHE_DIR"), os.environ.get("PIPX_CACHE_DIR"), tempfile.gettempdir(),
+             Path.home() / ".cache" / "uv", Path.home() / ".local" / "pipx" / ".cache"]
+    return any(real.is_relative_to(os.path.realpath(r)) for r in roots if r)
+
+
+def launcher() -> tuple[list[str] | None, str]:
+    """The command Claude Code should run aimpg with, and a line for the user about it ("" if none needed).
+
+    `uvx aimpg live install` finds aimpg in uv's cache, which `uv cache clean` deletes: the status line
+    and the hook would then break silently. So use a permanent aimpg on PATH, else uvx pinned to this version.
+    """
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        exe = shutil.which("aimpg", path=d) if d else None
+        if exe and not _ephemeral(exe):
+            if _ephemeral(__file__):  # running from uvx, but Claude Code will call the installed copy, maybe an older one
+                return [exe], (f"Claude Code will call the aimpg installed at {exe}, not this uvx copy "
+                               f"({metadata.version('aimpg')}). If that one is older:  uv tool upgrade aimpg")
+            return [exe], ""
+    uvx = shutil.which("uvx")
+    if uvx and not _ephemeral(uvx):
+        pinned = f"aimpg@{metadata.version('aimpg')}"
+        return [uvx, pinned], (f"aimpg is running from uv's temporary cache, so Claude Code will call it as `uvx {pinned}`."
+                               "\nFor a faster status line, install it for good:  uv tool install aimpg && aimpg live install")
+    return None, "Install aimpg permanently first so Claude Code can call it:  uv tool install aimpg"
+
+
+def _prefix(exe: str | list[str]) -> str:
+    # a path with spaces or quotes must stay one argument
+    return shlex.join(exe) if isinstance(exe, (list, tuple)) else shlex.quote(exe)
+
+
+def _load_settings(path: Path) -> dict:
+    """settings.json as a dict, or SettingsError if it isn't the shape Claude Code writes."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SettingsError(f"Couldn't read {path}: {exc}. Nothing changed.") from exc
+    except ValueError as exc:
+        raise SettingsError(f"{path} isn't valid JSON ({exc}). Nothing changed; fix it first.") from exc
+    hooks = (data.get("hooks") or {}) if isinstance(data, dict) else None
+    post = (hooks.get("PostToolUse") or []) if isinstance(hooks, dict) else None
+    ok = (isinstance(data, dict) and isinstance(data.get("statusLine") or {}, dict) and isinstance(post, list)
+          and all(isinstance(e, dict) and isinstance(e.get("hooks") or [], list)
+                  and all(isinstance(h, dict) for h in e.get("hooks") or []) for e in post))
+    if not ok:
+        raise SettingsError(f"{path} has a statusLine or hooks entry in a shape aimpg doesn't expect. Nothing changed.")
+    return data
+
+
+def _check_writable(path: Path) -> None:
+    target = path.resolve()
+    if target.exists() and not os.access(target, os.W_OK):
+        raise SettingsError(f"{target} is read-only. Nothing changed.")
+
+
 def _write_json(path: Path, data: dict) -> None:
-    """Write via a temp file and rename, so Claude Code never reads a half-written settings file."""
-    tmp = path.with_name(f".{path.name}.aimpg-tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.replace(tmp, path)
+    """Write via a temp file and rename, so Claude Code never reads a half-written settings file.
+
+    A symlinked settings.json (dotfiles) is followed and its target updated, and the file keeps its mode.
+    """
+    target = path.resolve()
+    tmp = target.with_name(f".{target.name}.aimpg-tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2) + "\n")
+        if target.exists():
+            os.chmod(tmp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(tmp, target)
+    except OSError as exc:
+        tmp.unlink(missing_ok=True)
+        raise SettingsError(f"Couldn't write {target}: {exc}. Nothing changed.") from exc
 
 
-def planned_settings(current: dict, exe: str) -> dict:
+def planned_settings(current: dict, exe: str | list[str]) -> dict:
     """The settings after install: our status line (wrapping any existing one) + a commit hook."""
     new = json.loads(json.dumps(current))
-    exe = shlex.quote(exe)  # a path with spaces or quotes must stay one argument
-    new["statusLine"] = {"type": "command", "command": f"{exe} statusline"}
-    hooks = new.setdefault("hooks", {}).setdefault("PostToolUse", [])
-    if not any(h.get("command", "").endswith("hook post-commit") for e in hooks for h in e.get("hooks", [])):
-        hooks.append({"matcher": "Bash", "hooks": [{"type": "command", "command": f"{exe} hook post-commit", "timeout": 10}]})
+    prefix = _prefix(exe)
+    new["statusLine"] = {**(new.get("statusLine") or {}), "type": "command", "command": f"{prefix} statusline"}
+    new["hooks"] = new.get("hooks") or {}
+    hooks = new["hooks"]["PostToolUse"] = new["hooks"].get("PostToolUse") or []
+    ours = [h for e in hooks for h in e.get("hooks") or [] if _is_our_hook(str(h.get("command", "")))]
+    for h in ours:  # from an earlier install, maybe from a path that's gone: point it here
+        h["command"] = f"{prefix} hook post-commit"
+    if not ours:
+        hooks.append({"matcher": "Bash", "hooks": [{"type": "command", "command": f"{prefix} hook post-commit", "timeout": 10}]})
     return new
 
 
-def install(settings: Path = SETTINGS, exe: str = "aimpg", *, confirm=input) -> str:
-    current = json.loads(settings.read_text()) if settings.exists() else {}
-    existing = (current.get("statusLine") or {}).get("command", "")
-    if existing.endswith("statusline") and "aimpg" in existing:
-        return "aimpg live is already installed."
+def install(settings: Path | None = None, exe: str | list[str] = "aimpg", *, confirm=input) -> str:
+    settings = settings or SETTINGS  # looked up at call time so tests can point it elsewhere
+    current = _load_settings(settings)
+    line = current.get("statusLine") or {}
+    existing = str(line.get("command", ""))
     new = planned_settings(current, exe)
+    if new == current:
+        return "aimpg live is already installed."
+    _check_writable(settings)
+    prefix = _prefix(exe)
+    if _is_our_line(existing):
+        note = f"  (replaces the earlier aimpg command, `{existing}`)"
+    else:
+        note = f"  (your current one, `{existing}`, keeps showing above it)" if existing else ""
     print(f"This will change {settings}:")
-    print(f"  statusLine → {exe} statusline" + (f"  (your current one, `{existing}`, keeps showing above it)" if existing else ""))
-    print(f"  PostToolUse hook (Bash) → {exe} hook post-commit  (shows you one line after the agent commits)")
-    if confirm("Apply? [y/N] ").strip().lower() != "y":
+    print(f"  statusLine → {prefix} statusline" + note)
+    print(f"  PostToolUse hook (Bash) → {prefix} hook post-commit  (shows you one line after the agent commits)")
+    try:
+        answer = confirm("Apply? [y/N] ")
+    except EOFError:  # no terminal to answer: same as "no"
+        answer = ""
+    if answer.strip().lower() != "y":
         return "Nothing changed."
     LIVE_DIR.mkdir(parents=True, exist_ok=True)
-    if existing:
-        PREVIOUS.write_text(json.dumps({"command": existing}))
+    if existing and not _is_our_line(existing):
+        PREVIOUS.write_text(json.dumps(line))  # the whole object, so uninstall puts back exactly this
     if settings.exists():
         backup = settings.with_suffix(f".json.aimpg-backup-{int(time.time())}")
-        backup.write_text(settings.read_text())
+        shutil.copy2(settings.resolve(), backup)  # keeps the mode: settings can hold secrets in "env"
     settings.parent.mkdir(parents=True, exist_ok=True)
     _write_json(settings, new)
     return "Installed. It shows up after the next AI message. Undo any time with `aimpg live uninstall`."
 
 
-def uninstall(settings: Path = SETTINGS) -> str:
+def uninstall(settings: Path | None = None) -> str:
+    settings = settings or SETTINGS
     if not settings.exists():
         return "Nothing to remove."
-    current = json.loads(settings.read_text())
-    if "aimpg" in (current.get("statusLine") or {}).get("command", ""):
+    current = _load_settings(settings)
+    new = json.loads(json.dumps(current))
+    if _is_our_line(str((new.get("statusLine") or {}).get("command", ""))):
         try:
-            current["statusLine"] = {"type": "command", "command": json.loads(PREVIOUS.read_text())["command"]}
-        except (OSError, ValueError, KeyError):
-            current.pop("statusLine", None)
-    post = (current.get("hooks") or {}).get("PostToolUse") or []
-    kept = [e for e in post if not any("aimpg" in h.get("command", "") and "post-commit" in h.get("command", "") for h in e.get("hooks", []))]
+            prev = json.loads(PREVIOUS.read_text())
+        except (OSError, ValueError):
+            prev = None
+        if isinstance(prev, dict) and prev.get("command"):
+            new["statusLine"] = prev if "type" in prev else {"type": "command", **prev}  # older installs saved only the command
+        else:
+            new.pop("statusLine", None)
+    post = (new.get("hooks") or {}).get("PostToolUse") or []
+    kept = [e for e in post if not any(_is_our_hook(str(h.get("command", ""))) for h in e.get("hooks") or [])]
     if post:
         if kept:
-            current["hooks"]["PostToolUse"] = kept
+            new["hooks"]["PostToolUse"] = kept
         else:
-            current["hooks"].pop("PostToolUse")
-            if not current["hooks"]:
-                current.pop("hooks")
-    _write_json(settings, current)
+            new["hooks"].pop("PostToolUse")
+            if not new["hooks"]:
+                new.pop("hooks")
+    if new == current:
+        return "aimpg live is not installed. Nothing changed."
+    _check_writable(settings)
+    _write_json(settings, new)
     PREVIOUS.unlink(missing_ok=True)
     return "Removed. Your previous status line (if any) is back."
 
@@ -406,5 +513,5 @@ def uninstall(settings: Path = SETTINGS) -> str:
 def previous_statusline() -> str | None:
     try:
         return json.loads(PREVIOUS.read_text())["command"]
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         return None
